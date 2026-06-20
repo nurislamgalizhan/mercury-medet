@@ -10,6 +10,12 @@ import SellTariffModal from '../../components/admin/SellTariffModal.jsx';
 import { useTariffs } from '../../hooks/useTariffs.js';
 
 const PAYMENT_LABEL = { CASH: 'Наличные', KASPI: 'Kaspi', HALYK: 'Halyk', MIXED: 'Смешанная' };
+const SUBSCRIPTION_STATUS_LABEL = {
+  ACTIVE: 'Активен',
+  EXPIRED: 'Завершен',
+  REFUNDED: 'Возврат',
+  CANCELLED: 'Деактивирован',
+};
 
 function toLocalDateStr(date) {
   const d = new Date(date);
@@ -36,6 +42,9 @@ export default function UserDetailPage() {
   const [refundAmount, setRefundAmount] = useState('');
   const [editSale, setEditSale] = useState(null);
   const [editForm, setEditForm] = useState({ tariffId: '', pricePaid: '', paymentMethod: 'CASH', cashAmount: '', cardAmount: '', cardProvider: 'KASPI' });
+  const [subscriptionToCancel, setSubscriptionToCancel] = useState(null);
+  const [subscriptionToActivate, setSubscriptionToActivate] = useState(null);
+  const [activateForm, setActivateForm] = useState({ visitsBalance: '' });
 
   const fetchUser = async () => {
     try {
@@ -203,6 +212,58 @@ export default function UserDetailPage() {
     }
   };
 
+  const openCancelSubscription = (subscription) => {
+    const ok = confirm(
+      `Внимание: абонемент в секции «${subscription.section?.name}» будет деактивирован, остаток посещений станет 0. Продолжить?`
+    );
+    if (!ok) return;
+    setSubscriptionToCancel(subscription);
+  };
+
+  const openActivateSubscription = (subscription) => {
+    const isUnlimited = subscription.tariff?.visitsAmount === null;
+    const initialBalance = isUnlimited ? '' : String(Math.min(
+      subscription.tariff?.visitsAmount || 1,
+      Math.max(1, subscription.visitsBalance || 1)
+    ));
+    setSubscriptionToActivate(subscription);
+    setActivateForm({ visitsBalance: initialBalance });
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!subscriptionToCancel) return;
+    setSaving(true);
+    try {
+      await api.post(`/users/${id}/subscriptions/${subscriptionToCancel.id}/cancel`, { confirmDeactivation: true });
+      toast.success('Абонемент деактивирован');
+      setSubscriptionToCancel(null);
+      fetchUser();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Ошибка деактивации');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleActivateSubscription = async (e) => {
+    e.preventDefault();
+    if (!subscriptionToActivate) return;
+    setSaving(true);
+    try {
+      const isUnlimited = subscriptionToActivate.tariff?.visitsAmount === null;
+      await api.post(`/users/${id}/subscriptions/${subscriptionToActivate.id}/activate`, {
+        ...(!isUnlimited && { visitsBalance: parseInt(activateForm.visitsBalance, 10) || 1 }),
+      });
+      toast.success('Абонемент активирован');
+      setSubscriptionToActivate(null);
+      fetchUser();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Ошибка активации');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-slate-400">Загрузка...</div>;
   if (!user) return null;
 
@@ -226,6 +287,7 @@ export default function UserDetailPage() {
           const isActive = subscription.status === 'ACTIVE';
           const isUnlimited = subscription.tariff?.visitsAmount === null;
           const isFrozen = subscription.frozenUntil && new Date(subscription.frozenUntil) > new Date();
+          const canActivate = !isActive && subscription.status !== 'REFUNDED' && new Date(subscription.subscriptionEnd) > new Date();
           return (
             <div key={subscription.id} className={`rounded-2xl border p-5 bg-white ${isActive ? 'border-slate-100' : 'border-slate-100 opacity-70'}`}>
               <div className="flex items-start justify-between gap-3">
@@ -235,7 +297,7 @@ export default function UserDetailPage() {
                   <p className="text-sm text-slate-500 mt-1">{subscription.tariff?.name}</p>
                 </div>
                 <span className={`text-xs px-2.5 py-1 rounded-full ${isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                  {subscription.status}
+                  {SUBSCRIPTION_STATUS_LABEL[subscription.status] || subscription.status}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
@@ -255,6 +317,12 @@ export default function UserDetailPage() {
                   {!isUnlimited && <Button size="sm" variant="secondary" onClick={() => openAdjust(subscription)}>Корректировка</Button>}
                   {!isFrozen && subscription.tariff?.visitsAmount !== 1 && <Button size="sm" variant="secondary" onClick={() => openFreeze(subscription)}>Заморозить</Button>}
                   {isFrozen && <Button size="sm" variant="secondary" onClick={() => handleUnfreeze(subscription)}>Разморозить</Button>}
+                  <Button size="sm" variant="danger" onClick={() => openCancelSubscription(subscription)}>Деактивировать</Button>
+                </div>
+              )}
+              {!isActive && canActivate && (
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <Button size="sm" variant="success" onClick={() => openActivateSubscription(subscription)}>Активировать</Button>
                 </div>
               )}
             </div>
@@ -331,6 +399,46 @@ export default function UserDetailPage() {
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 font-medium">Операция необратима. Возврат возможен только если по абонементу не было посещений.</div>
           <Input label="Сумма возврата" type="number" min="0" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} required />
           <Button type="submit" variant="danger" loading={saving} className="w-full">Оформить возврат</Button>
+        </form>
+      </Modal>
+
+      <Modal isOpen={Boolean(subscriptionToCancel)} onClose={() => setSubscriptionToCancel(null)} title="Деактивация абонемента">
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 font-medium">
+            Второе предупреждение: операция необратима. Абонемент будет деактивирован, остаток посещений станет 0, клиент больше не сможет отмечаться по этой секции.
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">{subscriptionToCancel?.section?.name} · {subscriptionToCancel?.tariff?.name}</p>
+            <p className="mt-1">Остаток: {subscriptionToCancel?.tariff?.visitsAmount === null ? '∞' : subscriptionToCancel?.visitsBalance} посещ.</p>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="secondary" type="button" onClick={() => setSubscriptionToCancel(null)} className="flex-1">Отмена</Button>
+            <Button variant="danger" type="button" loading={saving} onClick={handleCancelSubscription} className="flex-1">Деактивировать</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={Boolean(subscriptionToActivate)} onClose={() => setSubscriptionToActivate(null)} title="Активировать абонемент">
+        <form onSubmit={handleActivateSubscription} className="space-y-4">
+          <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800">
+            <p className="font-medium">{subscriptionToActivate?.section?.name} · {subscriptionToActivate?.tariff?.name}</p>
+            <p className="mt-1">Можно активировать только пока срок действия не истек.</p>
+          </div>
+          {subscriptionToActivate?.tariff?.visitsAmount !== null && (
+            <Input
+              label="Баланс посещений после активации"
+              type="number"
+              min="1"
+              max={subscriptionToActivate?.tariff?.visitsAmount ?? undefined}
+              value={activateForm.visitsBalance}
+              onChange={(e) => setActivateForm({ visitsBalance: e.target.value })}
+              required
+            />
+          )}
+          <div className="flex gap-3">
+            <Button variant="secondary" type="button" onClick={() => setSubscriptionToActivate(null)} className="flex-1">Отмена</Button>
+            <Button variant="success" type="submit" loading={saving} className="flex-1">Активировать</Button>
+          </div>
         </form>
       </Modal>
 

@@ -18,12 +18,12 @@ export default {
         },
       },
       animation: {
-        'flash-green': 'flashGreen 5s ease-out forwards',
+        'flash-green': 'flashGreen 1.6s ease-out forwards',
       },
       keyframes: {
         flashGreen: {
-          '0%': { backgroundColor: '#bbf7d0' },
-          '80%': { backgroundColor: '#bbf7d0' },
+          '0%': { backgroundColor: '#86efac' },
+          '45%': { backgroundColor: '#dcfce7' },
           '100%': { backgroundColor: 'transparent' },
         },
       },

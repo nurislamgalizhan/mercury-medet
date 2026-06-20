@@ -10,12 +10,12 @@
 
 @layer utilities {
   .animate-flash-green {
-    animation: flashGreen 5s ease-out forwards;
+    animation: flashGreen 1.6s ease-out forwards;
   }
 }
 
 @keyframes flashGreen {
-  0% { background-color: #bbf7d0; }
-  80% { background-color: #bbf7d0; }
+  0% { background-color: #86efac; }
+  45% { background-color: #dcfce7; }
   100% { background-color: transparent; }
 }

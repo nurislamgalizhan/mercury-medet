@@ -4,9 +4,8 @@ import toast from 'react-hot-toast';
 import api from '../../api/axios.js';
 import DateRangePicker from '../../components/ui/DateRangePicker.jsx';
 import Pagination from '../../components/ui/Pagination.jsx';
-import { useSaleLogs, useVisitLogs } from '../../hooks/useLogs.js';
+import { useSaleLogs } from '../../hooks/useLogs.js';
 import { useSections } from '../../hooks/useSections.js';
-import { useAdminSocket } from '../../hooks/useSocket.js';
 
 const PAYMENT_LABEL = { CASH: 'Наличные', KASPI: 'Kaspi', HALYK: 'Halyk', MIXED: 'Смешанная' };
 const EXPORT_PAGE_SIZE = 100;
@@ -76,44 +75,29 @@ function saleRow(sale) {
 }
 
 export default function AccountingPage() {
-  const [tab, setTab] = useState('sales');
   const [dateRange, setDateRange] = useState({ from: startOfDay(new Date()), to: endOfDay(new Date()) });
-  const [visitPage, setVisitPage] = useState(1);
   const [salePage, setSalePage] = useState(1);
   const [sectionId, setSectionId] = useState('all');
   const [exporting, setExporting] = useState(false);
 
-  const { logs: visitLogs, meta: visitMeta, loading: visitLoading, fetchLogs: fetchVisits, prependLog } = useVisitLogs();
   const { logs: saleLogs, meta: saleMeta, loading: saleLoading, fetchLogs: fetchSales } = useSaleLogs();
   const { sections, fetchSections } = useSections(true);
 
   const sectionParam = sectionId === 'all' ? undefined : sectionId;
-  const loadVisits = useCallback(() => {
-    fetchVisits({ page: visitPage, from: dateRange.from, to: dateRange.to, sectionId: sectionParam });
-  }, [visitPage, dateRange, sectionParam, fetchVisits]);
   const loadSales = useCallback(() => {
     fetchSales({ page: salePage, from: dateRange.from, to: dateRange.to, sectionId: sectionParam });
   }, [salePage, dateRange, sectionParam, fetchSales]);
 
   useEffect(() => { fetchSections(); }, [fetchSections]);
-  useEffect(() => { loadVisits(); }, [loadVisits]);
   useEffect(() => { loadSales(); }, [loadSales]);
-
-  useAdminSocket((visitLog) => {
-    if (tab === 'visits' && visitPage === 1 && (sectionId === 'all' || visitLog.sectionId === Number(sectionId))) {
-      prependLog(visitLog);
-    }
-  });
 
   const handleDateChange = (range) => {
     setDateRange(range);
-    setVisitPage(1);
     setSalePage(1);
   };
 
   const handleSectionChange = (nextSectionId) => {
     setSectionId(nextSectionId);
-    setVisitPage(1);
     setSalePage(1);
   };
 
@@ -204,61 +188,51 @@ export default function AccountingPage() {
         ))}
       </div>
 
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-6">
-        {[{ id: 'sales', label: 'Продажи' }, { id: 'visits', label: 'Посещения' }].map((item) => (
-          <button key={item.id} onClick={() => setTab(item.id)} className={`px-4 sm:px-5 py-2 rounded-lg text-sm font-medium ${tab === item.id ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>{item.label}</button>
-        ))}
+      <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <p className="text-sm text-slate-500">Всего: <span className="font-semibold text-slate-800">{saleMeta.total}</span></p>
+          <p className="text-sm font-semibold text-emerald-600">Чистая выручка: {(saleMeta.netRevenue ?? saleMeta.totalRevenue ?? 0).toLocaleString()} тг</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Дата</th>
+                <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Клиент</th>
+                <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Секция</th>
+                <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Тариф</th>
+                <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Оплата</th>
+                <th className="text-right px-4 py-3 text-xs text-slate-400 uppercase">Сумма</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {saleLoading ? (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Загрузка...</td></tr>
+              ) : saleLogs.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Нет продаж</td></tr>
+              ) : saleLogs.map((sale) => (
+                <tr key={sale.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 whitespace-nowrap">{format(new Date(sale.createdAt), 'dd.MM.yyyy HH:mm')}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {sale.user?.firstName} {sale.user?.lastName}
+                    <p className="text-xs text-slate-400">{sale.user?.phone}</p>
+                  </td>
+                  <td className="px-4 py-3">{sale.section?.name}</td>
+                  <td className="px-4 py-3">
+                    {sale.tariff?.name}
+                    <p className="text-xs text-slate-400">{sale.status === 'REFUNDED' ? `Возврат ${sale.refundAmount?.toLocaleString()} тг` : 'Активная'}</p>
+                  </td>
+                  <td className="px-4 py-3">{PAYMENT_LABEL[sale.paymentMethod]}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-emerald-600">{((sale.pricePaid || 0) - (sale.refundAmount || 0)).toLocaleString()} тг</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 border-t border-slate-100">
+          <Pagination page={salePage} pages={saleMeta.pages} onPageChange={setSalePage} />
+        </div>
       </div>
-
-      {tab === 'visits' && (
-        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-          <div className="p-4 border-b border-slate-100"><p className="text-sm text-slate-500">Всего: <span className="font-semibold text-slate-800">{visitMeta.total}</span></p></div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[680px]">
-              <thead><tr className="border-b border-slate-100"><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Дата</th><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Клиент</th><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Секция</th><th className="text-right px-4 py-3 text-xs text-slate-400 uppercase">Гости</th><th className="text-right px-4 py-3 text-xs text-slate-400 uppercase">Списано</th></tr></thead>
-              <tbody className="divide-y divide-slate-50">
-                {visitLoading ? <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Загрузка...</td></tr> : visitLogs.length === 0 ? <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Нет данных</td></tr> : visitLogs.map((visit) => (
-                  <tr key={visit.id} className={visit._isNew ? 'animate-flash-green' : 'hover:bg-slate-50'}>
-                    <td className="px-4 py-3 whitespace-nowrap">{format(new Date(visit.createdAt), 'dd.MM.yyyy HH:mm')}</td>
-                    <td className="px-4 py-3 font-medium">{visit.user?.firstName} {visit.user?.lastName}<p className="text-xs text-slate-400">{visit.user?.phone}</p></td>
-                    <td className="px-4 py-3 text-slate-600">{visit.section?.name}</td>
-                    <td className="px-4 py-3 text-right">{visit.guestCount ?? 0}</td>
-                    <td className="px-4 py-3 text-right font-semibold">−{visit.visitsDeducted}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="p-4 border-t border-slate-100"><Pagination page={visitPage} pages={visitMeta.pages} onPageChange={setVisitPage} /></div>
-        </div>
-      )}
-
-      {tab === 'sales' && (
-        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-          <div className="p-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
-            <p className="text-sm text-slate-500">Всего: <span className="font-semibold text-slate-800">{saleMeta.total}</span></p>
-            <p className="text-sm font-semibold text-emerald-600">Чистая выручка: {(saleMeta.netRevenue ?? saleMeta.totalRevenue ?? 0).toLocaleString()} тг</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[760px]">
-              <thead><tr className="border-b border-slate-100"><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Дата</th><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Клиент</th><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Секция</th><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Тариф</th><th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Оплата</th><th className="text-right px-4 py-3 text-xs text-slate-400 uppercase">Сумма</th></tr></thead>
-              <tbody className="divide-y divide-slate-50">
-                {saleLoading ? <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Загрузка...</td></tr> : saleLogs.length === 0 ? <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Нет продаж</td></tr> : saleLogs.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 whitespace-nowrap">{format(new Date(sale.createdAt), 'dd.MM.yyyy HH:mm')}</td>
-                    <td className="px-4 py-3 font-medium">{sale.user?.firstName} {sale.user?.lastName}<p className="text-xs text-slate-400">{sale.user?.phone}</p></td>
-                    <td className="px-4 py-3">{sale.section?.name}</td>
-                    <td className="px-4 py-3">{sale.tariff?.name}<p className="text-xs text-slate-400">{sale.status === 'REFUNDED' ? `Возврат ${sale.refundAmount?.toLocaleString()} тг` : 'Активная'}</p></td>
-                    <td className="px-4 py-3">{PAYMENT_LABEL[sale.paymentMethod]}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-600">{((sale.pricePaid || 0) - (sale.refundAmount || 0)).toLocaleString()} тг</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="p-4 border-t border-slate-100"><Pagination page={salePage} pages={saleMeta.pages} onPageChange={setSalePage} /></div>
-        </div>
-      )}
     </div>
   );
 }

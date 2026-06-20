@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
-import { usersQuerySchema, adjustUserSchema, createUserSchema, logsQuerySchema, freezeSchema } from '../schemas/index.js';
+import { usersQuerySchema, adjustUserSchema, createUserSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearExpiredVisits, clearExpiredVisitsForUsers } from '../utils/subscription.js';
 
@@ -10,6 +10,8 @@ function userPublic(user) {
 }
 
 async function getSubscriptionForAction(userId, userSubscriptionId) {
+  await clearExpiredVisitsForUsers(prisma);
+
   const subscriptions = await prisma.userSubscription.findMany({
     where: {
       userId,
@@ -96,6 +98,9 @@ export async function getUsers(req, res, next) {
 export async function getUserById(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
+
+    await clearExpiredVisitsForUsers(prisma);
+
     const foundUser = await prisma.user.findUnique({
       where: { id },
       include: {
@@ -214,9 +219,17 @@ export async function adjustUser(req, res, next) {
         where: { id: subscription.id },
         data: {
           ...(data.visitsBalance !== undefined && { visitsBalance: data.visitsBalance }),
+          ...(data.visitsBalance === 0 && { status: 'EXPIRED', frozenUntil: null }),
         },
         include: { section: true, tariff: true },
       });
+
+      if (data.visitsBalance === 0) {
+        await tx.user.update({
+          where: { id },
+          data: { visitsBalance: 0, frozenUntil: null },
+        });
+      }
 
       await createAdminAction(tx, {
         adminId: req.userId,
@@ -259,6 +272,173 @@ export async function deactivateUser(req, res, next) {
     });
 
     res.json({ message: 'Пользователь деактивирован' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function cancelSubscription(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const subscriptionId = parseInt(req.params.subscriptionId, 10);
+    cancelSubscriptionSchema.parse(req.body);
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user || !user.isActive) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    const subscription = await prisma.userSubscription.findFirst({
+      where: { id: subscriptionId, userId: id },
+      include: { section: true, tariff: true },
+    });
+
+    if (!subscription) {
+      return res.status(404).json({ message: 'Абонемент не найден' });
+    }
+    if (subscription.status !== 'ACTIVE') {
+      return res.status(400).json({ message: 'Можно деактивировать только активный абонемент' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextSubscription = await tx.userSubscription.update({
+        where: { id: subscription.id },
+        data: { status: 'CANCELLED', visitsBalance: 0, frozenUntil: null },
+        include: { section: true, tariff: true },
+      });
+
+      const otherActiveCount = await tx.userSubscription.count({
+        where: {
+          userId: id,
+          status: 'ACTIVE',
+          NOT: { id: subscription.id },
+        },
+      });
+
+      if (otherActiveCount === 0) {
+        await tx.user.update({
+          where: { id },
+          data: { visitsBalance: 0, subscriptionEnd: null, frozenUntil: null },
+        });
+      }
+
+      await createAdminAction(tx, {
+        adminId: req.userId,
+        targetUserId: id,
+        action: 'SUBSCRIPTION_CANCELLED',
+        details: {
+          subscriptionId: subscription.id,
+          sectionName: subscription.section.name,
+          tariffName: subscription.tariff.name,
+          previousVisitsBalance: subscription.visitsBalance,
+          subscriptionEnd: subscription.subscriptionEnd.toISOString(),
+        },
+      });
+
+      return nextSubscription;
+    });
+
+    res.json({ message: 'Абонемент деактивирован', subscription: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function activateSubscription(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const subscriptionId = parseInt(req.params.subscriptionId, 10);
+    const data = activateSubscriptionSchema.parse(req.body);
+
+    await clearExpiredVisitsForUsers(prisma);
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user || !user.isActive) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    const subscription = await prisma.userSubscription.findFirst({
+      where: { id: subscriptionId, userId: id },
+      include: { section: true, tariff: true },
+    });
+
+    if (!subscription) {
+      return res.status(404).json({ message: 'Абонемент не найден' });
+    }
+    if (subscription.status === 'ACTIVE') {
+      return res.status(400).json({ message: 'Абонемент уже активен' });
+    }
+    if (subscription.status === 'REFUNDED') {
+      return res.status(400).json({ message: 'Нельзя активировать возвращенный абонемент' });
+    }
+    if (subscription.subscriptionEnd <= new Date()) {
+      return res.status(400).json({ message: 'Нельзя активировать абонемент с истекшим сроком действия' });
+    }
+
+    const conflictingSubscription = await prisma.userSubscription.findFirst({
+      where: {
+        userId: id,
+        sectionId: subscription.sectionId,
+        status: 'ACTIVE',
+        NOT: { id: subscription.id },
+      },
+    });
+    if (conflictingSubscription) {
+      return res.status(400).json({ message: 'В этой секции уже есть активный абонемент' });
+    }
+
+    const isUnlimited = subscription.tariff?.visitsAmount === null;
+    const nextVisitsBalance = isUnlimited ? 0 : (data.visitsBalance ?? Math.max(1, subscription.visitsBalance || 1));
+    if (!isUnlimited) {
+      if (nextVisitsBalance < 1) {
+        return res.status(400).json({ message: 'Для активации укажите минимум 1 посещение' });
+      }
+      if (nextVisitsBalance > subscription.tariff.visitsAmount) {
+        return res.status(400).json({
+          message: `Нельзя установить больше ${subscription.tariff.visitsAmount} посещений (лимит тарифа)`,
+        });
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextSubscription = await tx.userSubscription.update({
+        where: { id: subscription.id },
+        data: {
+          status: 'ACTIVE',
+          visitsBalance: nextVisitsBalance,
+          frozenUntil: null,
+        },
+        include: { section: true, tariff: true },
+      });
+
+      await tx.user.update({
+        where: { id },
+        data: {
+          visitsBalance: nextVisitsBalance,
+          subscriptionEnd: subscription.subscriptionEnd,
+          frozenUntil: null,
+        },
+      });
+
+      await createAdminAction(tx, {
+        adminId: req.userId,
+        targetUserId: id,
+        action: 'VISITS_BALANCE_UPDATED',
+        details: {
+          activatedSubscription: true,
+          sectionName: subscription.section.name,
+          tariffName: subscription.tariff.name,
+          previousStatus: subscription.status,
+          nextStatus: 'ACTIVE',
+          previousVisitsBalance: subscription.visitsBalance,
+          nextVisitsBalance,
+        },
+      });
+
+      return nextSubscription;
+    });
+
+    res.json({ message: 'Абонемент активирован', subscription: updated });
   } catch (err) {
     next(err);
   }

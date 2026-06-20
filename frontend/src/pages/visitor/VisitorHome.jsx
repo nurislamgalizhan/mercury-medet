@@ -143,34 +143,6 @@ export default function VisitorHome() {
         )}
       </div>
 
-      {selectedSubscription && selectedTariff && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="font-semibold text-slate-900">{selectedTariff.name}</h2>
-              <p className="text-sm text-slate-500 mt-1">Ваш текущий тариф</p>
-            </div>
-            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
-              {selectedTariff.visitsAmount === null ? 'Безлимит' : `${selectedTariff.visitsAmount} посещ.`}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-slate-500">Секция</p>
-              <p className="font-medium text-slate-900 mt-1">{selectedSubscription.section?.name}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-slate-500">Окно посещения</p>
-              <p className="font-medium text-slate-900 mt-1">{selectedTariff.accessLabel || 'Любое время'}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-slate-500">Срок действия</p>
-              <p className="font-medium text-slate-900 mt-1">{selectedTariff.durationDays} дн.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {canCheckIn && (
         <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
           <div>
@@ -234,6 +206,34 @@ export default function VisitorHome() {
             </svg>
             Отметиться
           </Button>
+        </div>
+      )}
+
+      {selectedSubscription && selectedTariff && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-semibold text-slate-900">{selectedTariff.name}</h2>
+              <p className="text-sm text-slate-500 mt-1">Ваш текущий тариф</p>
+            </div>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
+              {selectedTariff.visitsAmount === null ? 'Безлимит' : `${selectedTariff.visitsAmount} посещ.`}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-slate-500">Секция</p>
+              <p className="font-medium text-slate-900 mt-1">{selectedSubscription.section?.name}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-slate-500">Окно посещения</p>
+              <p className="font-medium text-slate-900 mt-1">{selectedTariff.accessLabel || 'Любое время'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-slate-500">Срок действия</p>
+              <p className="font-medium text-slate-900 mt-1">{selectedTariff.durationDays} дн.</p>
+            </div>
+          </div>
         </div>
       )}
 

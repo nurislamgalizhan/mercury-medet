@@ -149,10 +149,21 @@ export async function checkIn(req, res, next) {
         return [log, subscription];
       }
 
+      const nextVisitsBalance = subscription.visitsBalance - visitsDeducted;
       const updated = await tx.userSubscription.update({
         where: { id: subscription.id },
-        data: { visitsBalance: { decrement: visitsDeducted } },
+        data: {
+          visitsBalance: { decrement: visitsDeducted },
+          ...(nextVisitsBalance <= 0 && { status: 'EXPIRED', frozenUntil: null }),
+        },
       });
+
+      if (nextVisitsBalance <= 0) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { visitsBalance: 0, frozenUntil: null },
+        });
+      }
 
       return [log, updated];
     });
@@ -291,10 +302,21 @@ export async function adminCheckIn(req, res, next) {
       });
 
       if (!hasUnlimited) {
+        const nextVisitsBalance = subscription.visitsBalance - visitsDeducted;
         await tx.userSubscription.update({
           where: { id: subscription.id },
-          data: { visitsBalance: { decrement: visitsDeducted } },
+          data: {
+            visitsBalance: { decrement: visitsDeducted },
+            ...(nextVisitsBalance <= 0 && { status: 'EXPIRED', frozenUntil: null }),
+          },
         });
+
+        if (nextVisitsBalance <= 0) {
+          await tx.user.update({
+            where: { id: userId },
+            data: { visitsBalance: 0, frozenUntil: null },
+          });
+        }
       }
 
       await createAdminAction(tx, {

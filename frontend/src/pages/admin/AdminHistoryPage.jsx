@@ -13,12 +13,16 @@ const ACTION_LABELS = {
   USER_DEACTIVATED: 'Пользователь деактивирован',
   ADMIN_VISIT_CHECKIN: 'Ручное списание посещения',
   SUBSCRIPTION_FROZEN: 'Абонемент заморожен',
+  SUBSCRIPTION_CANCELLED: 'Абонемент деактивирован',
 };
 
 function renderDetails(log) {
   const details = log.details || {};
 
   if (log.action === 'VISITS_BALANCE_UPDATED') {
+    if (details.activatedSubscription) {
+      return `Активирован: ${details.sectionName || 'Секция'} · ${details.tariffName || 'Тариф'}, баланс ${details.previousVisitsBalance ?? 0} -> ${details.nextVisitsBalance ?? 0}`;
+    }
     return `Баланс: ${details.previousVisitsBalance ?? 0} -> ${details.nextVisitsBalance ?? 0}`;
   }
 
@@ -52,6 +56,10 @@ function renderDetails(log) {
     return from
       ? `Заморожен на ${details.daysAdded} дн. (${from} — ${until})`
       : `Заморожен на ${details.daysAdded ?? 15} дней${until ? ` (до ${until})` : ''}`;
+  }
+
+  if (log.action === 'SUBSCRIPTION_CANCELLED') {
+    return `${details.sectionName ? `${details.sectionName} · ` : ''}${details.tariffName || 'Тариф'}; остаток был ${details.previousVisitsBalance ?? 0}`;
   }
 
   return 'Изменение выполнено';

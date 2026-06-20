@@ -30,7 +30,8 @@ export function useVisitLogs() {
   }, []);
 
   const prependLog = useCallback((log) => {
-    setLogs((prev) => [{ ...log, _isNew: true }, ...prev]);
+    setLogs((prev) => [{ ...log, _isNew: true, _flashId: Date.now() }, ...prev.filter((item) => item.id !== log.id)].slice(0, 20));
+    setMeta((prev) => ({ ...prev, total: (prev.total || 0) + 1 }));
   }, []);
 
   return { logs, meta, loading, fetchLogs, prependLog };

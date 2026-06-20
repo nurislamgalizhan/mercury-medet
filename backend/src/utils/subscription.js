@@ -17,7 +17,13 @@ export async function clearExpiredVisits(prismaClient, user, now = new Date()) {
 }
 
 export async function clearExpiredVisitsForUsers(prismaClient, now = new Date()) {
-  const [subscriptions, legacyUsers] = await Promise.all([
+  const finiteTariffs = await prismaClient.tariff.findMany({
+    where: { visitsAmount: { not: null } },
+    select: { id: true },
+  });
+  const finiteTariffIds = finiteTariffs.map((tariff) => tariff.id);
+
+  const [expiredSubscriptions, depletedSubscriptions, legacyUsers] = await Promise.all([
     prismaClient.userSubscription.updateMany({
       where: {
         status: 'ACTIVE',
@@ -25,6 +31,16 @@ export async function clearExpiredVisitsForUsers(prismaClient, now = new Date())
       },
       data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
     }),
+    finiteTariffIds.length
+      ? prismaClient.userSubscription.updateMany({
+          where: {
+            status: 'ACTIVE',
+            tariffId: { in: finiteTariffIds },
+            visitsBalance: { lte: 0 },
+          },
+          data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
+        })
+      : Promise.resolve({ count: 0 }),
     prismaClient.user.updateMany({
       where: {
         role: 'VISITOR',
@@ -36,7 +52,7 @@ export async function clearExpiredVisitsForUsers(prismaClient, now = new Date())
     }),
   ]);
 
-  return { count: subscriptions.count + legacyUsers.count };
+  return { count: expiredSubscriptions.count + depletedSubscriptions.count + legacyUsers.count };
 }
 
 export function getMillisecondsUntilNextDailyCleanup(now = new Date()) {

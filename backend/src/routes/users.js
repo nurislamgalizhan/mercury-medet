@@ -6,6 +6,8 @@ import {
   createUser,
   adjustUser,
   deactivateUser,
+  cancelSubscription,
+  activateSubscription,
   getAdminActionLogs,
   freezeSubscription,
   unfreezeSubscription,
@@ -24,6 +26,8 @@ router.get('/admin-history', getAdminActionLogs);
 router.post('/', createUser);
 router.get('/:id', getUserById);
 router.patch('/:id/adjust', adjustUser);
+router.post('/:id/subscriptions/:subscriptionId/cancel', cancelSubscription);
+router.post('/:id/subscriptions/:subscriptionId/activate', activateSubscription);
 router.delete('/:id', deactivateUser);
 
 export default router;

@@ -92,12 +92,21 @@ test('clearExpiredVisits resets remaining visits only after subscription expiry'
 test('expired visits cleanup updates database rows due at the current time', async () => {
   const now = new Date('2026-05-12T12:00:00.000Z');
   let userUpdateManyPayload = null;
-  let subscriptionUpdateManyPayload = null;
+  const subscriptionUpdateManyPayloads = [];
   const prismaClient = {
+    tariff: {
+      findMany: async (payload) => {
+        assert.deepEqual(payload, {
+          where: { visitsAmount: { not: null } },
+          select: { id: true },
+        });
+        return [{ id: 10 }, { id: 11 }];
+      },
+    },
     userSubscription: {
       updateMany: async (payload) => {
-        subscriptionUpdateManyPayload = payload;
-        return { count: 3 };
+        subscriptionUpdateManyPayloads.push(payload);
+        return { count: subscriptionUpdateManyPayloads.length === 1 ? 3 : 4 };
       },
     },
     user: {
@@ -110,11 +119,19 @@ test('expired visits cleanup updates database rows due at the current time', asy
 
   const result = await clearExpiredVisitsForUsers(prismaClient, now);
 
-  assert.equal(result.count, 5);
-  assert.deepEqual(subscriptionUpdateManyPayload, {
+  assert.equal(result.count, 9);
+  assert.deepEqual(subscriptionUpdateManyPayloads[0], {
     where: {
       status: 'ACTIVE',
       subscriptionEnd: { lte: now },
+    },
+    data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
+  });
+  assert.deepEqual(subscriptionUpdateManyPayloads[1], {
+    where: {
+      status: 'ACTIVE',
+      tariffId: { in: [10, 11] },
+      visitsBalance: { lte: 0 },
     },
     data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
   });

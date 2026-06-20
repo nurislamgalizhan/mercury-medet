@@ -11,6 +11,7 @@ import AdminLayout from './pages/admin/AdminLayout.jsx';
 import AdminDashboard from './pages/admin/AdminDashboard.jsx';
 import UsersPage from './pages/admin/UsersPage.jsx';
 import UserDetailPage from './pages/admin/UserDetailPage.jsx';
+import VisitsAdminPage from './pages/admin/VisitsAdminPage.jsx';
 import AccountingPage from './pages/admin/AccountingPage.jsx';
 import TariffsAdminPage from './pages/admin/TariffsAdminPage.jsx';
 import AdminHistoryPage from './pages/admin/AdminHistoryPage.jsx';
@@ -63,6 +64,7 @@ export default function App() {
         <Route index element={<AdminDashboard />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="users/:id" element={<UserDetailPage />} />
+        <Route path="visits" element={<VisitsAdminPage />} />
         <Route path="accounting" element={<AccountingPage />} />
         <Route path="history" element={<AdminHistoryPage />} />
         <Route path="tariffs" element={<TariffsAdminPage />} />

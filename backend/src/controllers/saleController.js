@@ -365,3 +365,38 @@ export async function getSaleLogs(req, res, next) {
     next(err);
   }
 }
+
+export async function getMySaleLogs(req, res, next) {
+  try {
+    const { page, limit } = logsQuerySchema.parse(req.query);
+    const skip = (page - 1) * limit;
+    const where = { userId: req.userId };
+
+    const [logs, total] = await Promise.all([
+      prisma.saleLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          section: { select: { id: true, name: true } },
+          tariff: { select: { id: true, name: true, visitsAmount: true, durationDays: true, timeType: true, timeStart: true, timeEnd: true } },
+          subscription: { select: { id: true, visitsBalance: true, subscriptionEnd: true, status: true, frozenUntil: true } },
+        },
+      }),
+      prisma.saleLog.count({ where }),
+    ]);
+
+    res.json({
+      data: logs,
+      meta: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}

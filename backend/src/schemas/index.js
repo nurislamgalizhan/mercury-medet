@@ -164,6 +164,16 @@ export const freezeSchema = z.object({
   }
 });
 
+export const cancelSubscriptionSchema = z.object({
+  confirmDeactivation: z.literal(true, {
+    errorMap: () => ({ message: 'Подтвердите деактивацию абонемента' }),
+  }),
+});
+
+export const activateSubscriptionSchema = z.object({
+  visitsBalance: z.number().int().min(0, 'Баланс не может быть отрицательным').optional(),
+});
+
 export const sectionSchema = z.object({
   name: z.string().min(1, 'Название обязательно').max(100, 'Максимум 100 символов'),
   isActive: z.boolean().optional(),
