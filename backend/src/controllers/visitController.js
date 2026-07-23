@@ -4,6 +4,11 @@ import { emitNewVisit } from '../socket/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearExpiredVisitsForUsers } from '../utils/subscription.js';
 import { getDuplicateVisitWarning } from '../utils/visits.js';
+import {
+  checkInSharedSubscription,
+  createIdempotencyKey,
+} from '../services/syncClient.js';
+import { applySharedVisit } from '../services/sharedOperations.js';
 
 function isTimeAllowed(timeType, timeStart, timeEnd) {
   if (timeType === 'ANY') return true;
@@ -14,6 +19,10 @@ function isTimeAllowed(timeType, timeStart, timeEnd) {
   const [endH, endM] = (timeEnd || '23:59').split(':').map(Number);
 
   return currentMinutes >= startH * 60 + startM && currentMinutes <= endH * 60 + endM;
+}
+
+function visitPublic(visit) {
+  return { ...visit, isShared: Boolean(visit.syncId) };
 }
 
 async function getSelectedSubscription(userId, sectionId) {
@@ -45,6 +54,8 @@ async function getSelectedSubscription(userId, sectionId) {
           visitsBalance: s.visitsBalance,
           subscriptionEnd: s.subscriptionEnd,
           tariff: s.tariff,
+          isShared: Boolean(s.syncId),
+          sourceSite: s.originSite,
         })),
       },
     };
@@ -114,6 +125,33 @@ export async function checkIn(req, res, next) {
       return res.status(validationError.status).json({ message: validationError.message });
     }
 
+    if (subscription.syncId) {
+      const sharedResult = await checkInSharedSubscription({
+        syncId: subscription.syncId,
+        visitsDeducted,
+        guestCount,
+        confirmDuplicate,
+        idempotencyKey: createIdempotencyKey(`checkin:${userId}:${subscription.syncId}`),
+        actorLabel: `Меркурий Медет клиент #${userId}`,
+      });
+      const { subscription: updatedSubscription, visitLog } = await prisma.$transaction((tx) =>
+        applySharedVisit(tx, {
+          localSubscription: subscription,
+          sharedResult,
+          userId,
+        })
+      );
+
+      emitNewVisit(visitLog);
+      const guestsLabel = guestCount > 0 ? ` и ${guestCount} гост.` : '';
+      return res.json({
+        message: `Списано ${visitsDeducted} посещ.${guestsLabel}`,
+        visitsBalance: updatedSubscription.visitsBalance,
+        sectionId: subscription.sectionId,
+        visitLog: visitPublic(visitLog),
+      });
+    }
+
     const lastVisit = await prisma.visitLog.findFirst({
       where: { userSubscriptionId: subscription.id },
       orderBy: { createdAt: 'desc' },
@@ -179,9 +217,12 @@ export async function checkIn(req, res, next) {
       message: `Списано ${visitsDeducted} посещ.${guestsLabel}`,
       visitsBalance: updatedSubscription.visitsBalance,
       sectionId: subscription.sectionId,
-      visitLog,
+      visitLog: visitPublic(visitLog),
     });
   } catch (err) {
+    if (err.code) {
+      return res.status(err.statusCode || 400).json({ message: err.message, code: err.code });
+    }
     next(err);
   }
 }
@@ -220,7 +261,7 @@ export async function getVisitLogs(req, res, next) {
     ]);
 
     res.json({
-      data: logs,
+      data: logs.map(visitPublic),
       meta: {
         total,
         page,
@@ -252,7 +293,7 @@ export async function getMyVisitLogs(req, res, next) {
     ]);
 
     res.json({
-      data: logs,
+      data: logs.map(visitPublic),
       meta: {
         total,
         page,
@@ -283,6 +324,43 @@ export async function adminCheckIn(req, res, next) {
     const validationError = validateSubscriptionForCheckIn(subscription, visitsDeducted, 0);
     if (validationError) {
       return res.status(validationError.status).json({ message: validationError.message });
+    }
+
+    if (subscription.syncId) {
+      const sharedResult = await checkInSharedSubscription({
+        syncId: subscription.syncId,
+        visitsDeducted,
+        guestCount: 0,
+        confirmDuplicate: true,
+        idempotencyKey: createIdempotencyKey(`admin-checkin:${req.userId}:${subscription.syncId}`),
+        actorLabel: `Меркурий Медет администратор #${req.userId}`,
+        isAdminAction: true,
+      });
+      const { visitLog } = await prisma.$transaction(async (tx) => {
+        const applied = await applySharedVisit(tx, {
+          localSubscription: subscription,
+          sharedResult,
+          userId,
+        });
+        await createAdminAction(tx, {
+          adminId: req.userId,
+          targetUserId: userId,
+          action: 'ADMIN_VISIT_CHECKIN',
+          details: {
+            visitsDeducted,
+            userName: `${user.firstName} ${user.lastName}`,
+            sectionName: subscription.section.name,
+            sourceSite: 'MERCURY',
+          },
+        });
+        return applied;
+      });
+
+      emitNewVisit(visitLog);
+      return res.json({
+        message: `Списано ${visitsDeducted} посещ. (администратором)`,
+        visitLog: visitPublic(visitLog),
+      });
     }
 
     const hasUnlimited = subscription.tariff.visitsAmount === null;
@@ -339,8 +417,14 @@ export async function adminCheckIn(req, res, next) {
       section: { id: subscription.section.id, name: subscription.section.name },
     });
 
-    res.json({ message: `Списано ${visitsDeducted} посещ. (администратором)`, visitLog });
+    res.json({
+      message: `Списано ${visitsDeducted} посещ. (администратором)`,
+      visitLog: visitPublic(visitLog),
+    });
   } catch (err) {
+    if (err.code) {
+      return res.status(err.statusCode || 400).json({ message: err.message, code: err.code });
+    }
     next(err);
   }
 }

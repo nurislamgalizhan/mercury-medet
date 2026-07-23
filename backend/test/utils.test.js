@@ -124,6 +124,7 @@ test('expired visits cleanup updates database rows due at the current time', asy
     where: {
       status: 'ACTIVE',
       subscriptionEnd: { lte: now },
+      syncId: null,
     },
     data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
   });
@@ -132,6 +133,7 @@ test('expired visits cleanup updates database rows due at the current time', asy
       status: 'ACTIVE',
       tariffId: { in: [10, 11] },
       visitsBalance: { lte: 0 },
+      syncId: null,
     },
     data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
   });

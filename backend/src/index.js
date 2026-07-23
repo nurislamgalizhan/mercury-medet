@@ -15,6 +15,7 @@ import sectionRoutes from './routes/sections.js';
 import tariffRoutes from './routes/tariffs.js';
 import visitRoutes from './routes/visits.js';
 import saleRoutes from './routes/sales.js';
+import syncRoutes from './routes/sync.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -46,6 +47,7 @@ app.use('/api/sections', sectionRoutes);
 app.use('/api/tariffs', tariffRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/sales', saleRoutes);
+app.use('/api/sync', syncRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

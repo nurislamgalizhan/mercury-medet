@@ -6,6 +6,11 @@ import { useVisitLogs } from '../../hooks/useLogs.js';
 import { useSections } from '../../hooks/useSections.js';
 import { useAdminSocket } from '../../hooks/useSocket.js';
 
+const SOURCE_LABELS = {
+  MERCURY: 'Меркурий Медет',
+  BVA: 'BVA, Коперника 130',
+};
+
 export default function VisitsAdminPage() {
   const [dateRange, setDateRange] = useState({ from: startOfDay(new Date()), to: endOfDay(new Date()) });
   const [page, setPage] = useState(1);
@@ -70,15 +75,16 @@ export default function VisitsAdminPage() {
                 <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Дата</th>
                 <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Клиент</th>
                 <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Секция</th>
+                <th className="text-left px-4 py-3 text-xs text-slate-400 uppercase">Источник</th>
                 <th className="text-right px-4 py-3 text-xs text-slate-400 uppercase">Гости</th>
                 <th className="text-right px-4 py-3 text-xs text-slate-400 uppercase">Списано</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Загрузка...</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Загрузка...</td></tr>
               ) : logs.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Нет данных</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Нет данных</td></tr>
               ) : logs.map((visit) => (
                 <tr key={`${visit.id}-${visit._flashId || ''}`} className={visit._isNew ? 'animate-flash-green' : 'hover:bg-slate-50'}>
                   <td className="px-4 py-3 whitespace-nowrap">{format(new Date(visit.createdAt), 'dd.MM.yyyy HH:mm')}</td>
@@ -87,6 +93,9 @@ export default function VisitsAdminPage() {
                     <p className="text-xs text-slate-400">{visit.user?.phone}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-600">{visit.section?.name}</td>
+                  <td className="px-4 py-3 text-slate-500">
+                    {SOURCE_LABELS[visit.sourceSite] || 'Локально'}
+                  </td>
                   <td className="px-4 py-3 text-right">{visit.guestCount ?? 0}</td>
                   <td className="px-4 py-3 text-right font-semibold">-{visit.visitsDeducted}</td>
                 </tr>

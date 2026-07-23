@@ -11,6 +11,10 @@ const SUBSCRIPTION_STATUS_LABEL = {
   REFUNDED: 'Возврат',
   CANCELLED: 'Деактивирован',
 };
+const SOURCE_LABELS = {
+  MERCURY: 'Меркурий Медет',
+  BVA: 'BVA, Коперника 130',
+};
 
 export default function VisitorHistoryPage() {
   const [tab, setTab] = useState('visits');
@@ -102,6 +106,11 @@ export default function VisitorHistoryPage() {
                       <p className="text-sm text-slate-500">
                         {log.section?.name || 'Секция'} · {log.guestCount > 0 ? `С гостями: ${log.guestCount}` : 'Без гостей'}
                       </p>
+                      {log.sourceSite && (
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {SOURCE_LABELS[log.sourceSite]}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-slate-900">-{log.visitsDeducted}</p>

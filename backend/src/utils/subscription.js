@@ -28,6 +28,7 @@ export async function clearExpiredVisitsForUsers(prismaClient, now = new Date())
       where: {
         status: 'ACTIVE',
         subscriptionEnd: { lte: now },
+        syncId: null,
       },
       data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
     }),
@@ -37,6 +38,7 @@ export async function clearExpiredVisitsForUsers(prismaClient, now = new Date())
             status: 'ACTIVE',
             tariffId: { in: finiteTariffIds },
             visitsBalance: { lte: 0 },
+            syncId: null,
           },
           data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
         })

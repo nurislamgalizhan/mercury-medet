@@ -57,6 +57,8 @@ export async function buildUserProfile(inputUser) {
       subscriptionEnd: subscription.subscriptionEnd,
       frozenUntil: subscription.frozenUntil,
       status: subscription.status,
+      isShared: Boolean(subscription.syncId),
+      sourceSite: subscription.originSite,
     }));
 
   const currentSubscription = activeSubscriptions[0] || null;
@@ -65,7 +67,11 @@ export async function buildUserProfile(inputUser) {
 
   return {
     ...sanitizeUser(user),
-    subscriptions,
+    subscriptions: subscriptions.map((subscription) => ({
+      ...subscription,
+      isShared: Boolean(subscription.syncId),
+      sourceSite: subscription.originSite,
+    })),
     activeSubscriptions,
     isUnlimitedSubscription: activeSubscriptions.some((subscription) => subscription.tariff.visitsAmount === null),
     isSingleVisitTariff,

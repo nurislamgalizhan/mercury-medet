@@ -21,6 +21,7 @@ enum AdminActionType {
   USER_DEACTIVATED
   ADMIN_VISIT_CHECKIN
   SUBSCRIPTION_FROZEN
+  SUBSCRIPTION_UNFROZEN
   SUBSCRIPTION_CANCELLED
 }
 
@@ -66,12 +67,14 @@ model User {
   isVerified      Boolean   @default(false)
   isActive        Boolean   @default(true)
   frozenUntil     DateTime?
+  syncMemberId    String?    @unique
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   visitLogs VisitLog[]
   saleLogs  SaleLog[]
   subscriptions UserSubscription[]
+  sectionMemberships SectionMembership[]
   adminActions      AdminActionLog[] @relation("AdminActor")
   targetAdminActions AdminActionLog[] @relation("AdminTarget")
 
@@ -93,6 +96,7 @@ model Section {
   saleLogs      SaleLog[]
   visitLogs     VisitLog[]
   subscriptions UserSubscription[]
+  memberships   SectionMembership[]
 
   @@map("sections")
 }
@@ -105,6 +109,7 @@ model Tariff {
   durationDays Int
   price        Int
   isActive     Boolean  @default(true)
+  isSyncMirror Boolean  @default(false)
   timeType     TimeType @default(ANY)
   timeStart    String?
   timeEnd      String?
@@ -126,6 +131,8 @@ model VisitLog {
   userSubscriptionId Int?
   visitsDeducted Int
   guestCount     Int      @default(0)
+  syncId         String?   @unique
+  sourceSite     String?
   createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
@@ -173,6 +180,9 @@ model UserSubscription {
   subscriptionEnd DateTime
   frozenUntil     DateTime?
   status          SubscriptionStatus @default(ACTIVE)
+  syncId          String?             @unique
+  originSite      String?
+  projectionVersion Int               @default(0)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -203,16 +213,34 @@ model RegistrationAttempt {
 
 model AdminActionLog {
   id           Int             @id @default(autoincrement())
-  adminId      Int
+  adminId      Int?
   targetUserId Int?
   action       AdminActionType
   details      Json?
+  syncId       String?         @unique
+  sourceSite   String?
+  sourceActorLabel String?
   createdAt    DateTime        @default(now())
 
-  admin      User  @relation("AdminActor", fields: [adminId], references: [id])
+  admin      User? @relation("AdminActor", fields: [adminId], references: [id])
   targetUser User? @relation("AdminTarget", fields: [targetUserId], references: [id])
 
   @@index([adminId, createdAt])
   @@index([targetUserId, createdAt])
   @@map("admin_action_logs")
+}
+
+model SectionMembership {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  sectionId Int
+  sourceSite String?
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  section Section @relation(fields: [sectionId], references: [id])
+
+  @@unique([userId, sectionId])
+  @@index([sectionId])
+  @@map("section_memberships")
 }

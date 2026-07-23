@@ -2,6 +2,15 @@ import { prisma } from '../db.js';
 import { logsQuerySchema, refundSaleSchema, sellTariffSchema, updateSaleSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearExpiredVisitsForUsers } from '../utils/subscription.js';
+import {
+  commandSharedSubscription,
+  confirmSharedSubscription,
+  createIdempotencyKey,
+  getSyncSite,
+  isSharedSection,
+  prepareSharedSubscription,
+  tariffSnapshot,
+} from '../services/syncClient.js';
 
 function resolvePayment({ pricePaid, paymentMethod, cashAmount = 0, cardAmount = 0, cardProvider = null }) {
   const resolvedCardProvider =
@@ -74,6 +83,19 @@ export async function sellTariff(req, res, next) {
     const now = new Date();
     const subscriptionEnd = addDays(now, tariff.durationDays);
     const visitsBalance = tariff.visitsAmount ?? 0;
+    const shared = isSharedSection(tariff.section)
+      ? await prepareSharedSubscription({
+          user: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            phone: user.phone,
+          },
+          plan: tariffSnapshot(tariff),
+          subscriptionEnd: subscriptionEnd.toISOString(),
+          idempotencyKey: createIdempotencyKey(`sale:${user.id}:${tariff.id}`),
+        })
+      : null;
 
     const created = await prisma.$transaction(async (tx) => {
       const sale = await tx.saleLog.create({
@@ -98,14 +120,32 @@ export async function sellTariff(req, res, next) {
           visitsBalance,
           subscriptionEnd,
           status: 'ACTIVE',
+          ...(shared && {
+            syncId: shared.syncId,
+            originSite: getSyncSite(),
+            projectionVersion: 0,
+          }),
         },
         include: { section: true, tariff: true },
       });
 
       await tx.user.update({
         where: { id: userId },
-        data: { visitsBalance, subscriptionEnd, frozenUntil: null },
+        data: {
+          visitsBalance,
+          subscriptionEnd,
+          frozenUntil: null,
+          ...(shared && { syncMemberId: shared.memberId }),
+        },
       });
+
+      if (shared) {
+        await tx.sectionMembership.upsert({
+          where: { userId_sectionId: { userId, sectionId: tariff.sectionId } },
+          update: { sourceSite: getSyncSite() },
+          create: { userId, sectionId: tariff.sectionId, sourceSite: getSyncSite() },
+        });
+      }
 
       await createAdminAction(tx, {
         adminId: req.userId,
@@ -127,7 +167,28 @@ export async function sellTariff(req, res, next) {
       return { sale, subscription };
     });
 
-    res.status(201).json({ message: 'Абонемент продан успешно', subscription: created.subscription, sale: created.sale });
+    let syncPending = false;
+    if (shared) {
+      try {
+        await confirmSharedSubscription({
+          syncId: shared.syncId,
+          localSubscriptionId: created.subscription.id,
+          idempotencyKey: createIdempotencyKey(`confirm:${shared.syncId}`),
+        });
+      } catch (syncError) {
+        syncPending = true;
+        console.error('[Sync] Subscription confirmation pending:', syncError.message);
+      }
+    }
+
+    res.status(201).json({
+      message: syncPending
+        ? 'Абонемент продан. Синхронизация будет завершена автоматически.'
+        : 'Абонемент продан успешно',
+      subscription: created.subscription,
+      sale: created.sale,
+      syncPending,
+    });
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ message: err.message });
     next(err);
@@ -194,6 +255,26 @@ export async function updateSale(req, res, next) {
     const nextSubscriptionEnd = sale.subscription
       ? addDays(sale.createdAt, nextTariff.durationDays)
       : null;
+
+    if (sale.subscription?.syncId) {
+      if (!isSharedSection(nextTariff.section)) {
+        return res.status(400).json({
+          message: 'Общий абонемент нельзя перенести в другую секцию. Деактивируйте его и оформите новый.',
+        });
+      }
+      await commandSharedSubscription(sale.subscription.syncId, {
+        type: 'UPDATE',
+        plan: tariffSnapshot(nextTariff),
+        subscriptionEnd: nextSubscriptionEnd?.toISOString(),
+        visitsBalance: changesTariffOrSection ? (nextTariff.visitsAmount ?? 0) : sale.subscription.visitsBalance,
+        actorLabel: `Mercury администратор #${req.userId}`,
+        idempotencyKey: createIdempotencyKey(`sale-update:${sale.id}`),
+      });
+    } else if (isSharedSection(nextTariff.section)) {
+      return res.status(400).json({
+        message: 'Для переноса в общую секцию оформите новую продажу.',
+      });
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       const nextSale = await tx.saleLog.update({
@@ -277,6 +358,21 @@ export async function refundSale(req, res, next) {
     const visitsCount = await prisma.visitLog.count({ where: { userSubscriptionId: sale.subscription.id } });
     if (visitsCount > 0) {
       return res.status(400).json({ message: 'Возврат невозможен: по абонементу уже были посещения' });
+    }
+
+    if (sale.subscription.syncId) {
+      await commandSharedSubscription(sale.subscription.syncId, {
+        type: 'REFUND',
+        actorLabel: `Mercury администратор #${req.userId}`,
+        details: {
+          saleId: sale.id,
+          sectionName: sale.section.name,
+          tariffName: sale.tariff.name,
+          pricePaid: sale.pricePaid,
+          refundAmount,
+        },
+        idempotencyKey: createIdempotencyKey(`refund:${sale.id}`),
+      });
     }
 
     const refunded = await prisma.$transaction(async (tx) => {

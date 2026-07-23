@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../../api/axios.js';
@@ -20,6 +20,25 @@ export default function AdminLayout() {
   const [pwModal, setPwModal] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [pwLoading, setPwLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadStatus = async () => {
+      try {
+        const { data } = await api.get('/sync/status');
+        if (active) setSyncStatus(data);
+      } catch {
+        if (active) setSyncStatus({ status: 'unavailable' });
+      }
+    };
+    loadStatus();
+    const timer = setInterval(loadStatus, 60_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -99,6 +118,16 @@ export default function AdminLayout() {
         </nav>
 
         <div className="p-4 border-t border-slate-700">
+          {syncStatus && syncStatus.status !== 'disabled' && (
+            <div className="px-3 pb-3 flex items-center gap-2 text-xs text-slate-400">
+              <span className={`w-2 h-2 rounded-full ${
+                syncStatus.status === 'ok' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`} />
+              {syncStatus.status === 'ok'
+                ? 'Синхронизация работает'
+                : 'Синхронизация задержана'}
+            </div>
+          )}
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
             <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0">
               {user?.firstName?.[0]}

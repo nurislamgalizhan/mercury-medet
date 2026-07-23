@@ -34,6 +34,11 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       ADMIN_FIRST_NAME: ${ADMIN_FIRST_NAME:-Администратор}
       ADMIN_LAST_NAME: ${ADMIN_LAST_NAME:-Системы}
+      VOLLEYBALL_SYNC_ENABLED: ${VOLLEYBALL_SYNC_ENABLED:-false}
+      VOLLEYBALL_SYNC_URL: ${VOLLEYBALL_SYNC_URL:-http://volleyball-sync:4100}
+      VOLLEYBALL_SYNC_SECRET: ${SYNC_HMAC_SECRET:-}
+      VOLLEYBALL_SYNC_SITE: MERCURY
+      VOLLEYBALL_SYNC_SECTION_NAME: ${MERCURY_SYNC_SECTION_NAME:-Волейбол}
     depends_on:
       db:
         condition: service_healthy

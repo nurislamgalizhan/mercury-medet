@@ -13,6 +13,7 @@ const ACTION_LABELS = {
   USER_DEACTIVATED: 'Пользователь деактивирован',
   ADMIN_VISIT_CHECKIN: 'Ручное списание посещения',
   SUBSCRIPTION_FROZEN: 'Абонемент заморожен',
+  SUBSCRIPTION_UNFROZEN: 'Абонемент разморожен',
   SUBSCRIPTION_CANCELLED: 'Абонемент деактивирован',
 };
 
@@ -115,7 +116,9 @@ export default function AdminHistoryPage() {
                   <p className="font-medium text-slate-900">{ACTION_LABELS[log.action] || log.action}</p>
                   <p className="text-sm text-slate-600 mt-1">{renderDetails(log)}</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Администратор: {log.admin?.firstName} {log.admin?.lastName}
+                    Администратор: {log.admin
+                      ? `${log.admin.firstName} ${log.admin.lastName}`
+                      : (log.sourceActorLabel || 'Системная синхронизация')}
                     {log.targetUser ? ` • Клиент: ${log.targetUser.firstName} ${log.targetUser.lastName}` : ''}
                   </p>
                 </div>

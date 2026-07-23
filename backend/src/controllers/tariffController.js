@@ -7,6 +7,7 @@ export async function getTariffs(req, res, next) {
     const sectionId = req.query.sectionId ? parseInt(req.query.sectionId, 10) : null;
     const tariffs = await prisma.tariff.findMany({
       where: {
+        isSyncMirror: false,
         ...(onlyActive && { isActive: true, section: { isActive: true } }),
         ...(sectionId && { sectionId }),
       },
