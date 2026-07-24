@@ -179,6 +179,10 @@ model UserSubscription {
   visitsBalance   Int                @default(0)
   subscriptionEnd DateTime
   frozenUntil     DateTime?
+  freezeStartedAt DateTime?
+  freezeDaysUsed  Int                @default(0)
+  freezeDaysReserved Int             @default(0)
+  freezeUntilManual Boolean          @default(false)
   status          SubscriptionStatus @default(ACTIVE)
   syncId          String?             @unique
   originSite      String?

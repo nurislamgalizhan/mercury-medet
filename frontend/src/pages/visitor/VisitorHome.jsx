@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import FreezeSubscriptionModal from '../../components/FreezeSubscriptionModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 export default function VisitorHome() {
@@ -15,6 +16,8 @@ export default function VisitorHome() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState('');
+  const [freezeOpen, setFreezeOpen] = useState(false);
+  const [freezeSaving, setFreezeSaving] = useState(false);
 
   const selectedSubscription = useMemo(() => {
     if (activeSubscriptions.length === 1) return activeSubscriptions[0];
@@ -31,6 +34,13 @@ export default function VisitorHome() {
   const totalVisitsToDeduct = useMemo(() => 1 + guestCount, [guestCount]);
   const maxGuests = Math.max(0, (selectedSubscription?.visitsBalance ?? 1) - 1);
   const canCheckIn = !isFrozen && (isUnlimited ? subscriptionActive : Boolean(selectedSubscription?.visitsBalance > 0 && subscriptionActive));
+  const freezeDaysRemaining = selectedSubscription?.freezeDaysRemaining ?? 15;
+  const canFreeze = Boolean(
+    selectedSubscription
+      && subscriptionActive
+      && selectedTariff?.visitsAmount !== 1
+      && freezeDaysRemaining > 0
+  );
 
   const resetVisitFlow = () => {
     setConfirmOpen(false);
@@ -70,6 +80,22 @@ export default function VisitorHome() {
       toast.error(err.response?.data?.message || 'Ошибка списания');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUnfreeze = async () => {
+    if (!selectedSubscription || !confirm('Разморозить абонемент сейчас?')) return;
+    setFreezeSaving(true);
+    try {
+      const { data } = await api.post(`/users/${user.id}/unfreeze`, {
+        userSubscriptionId: selectedSubscription.id,
+      });
+      toast.success(data.message);
+      await refreshUser();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Ошибка разморозки');
+    } finally {
+      setFreezeSaving(false);
     }
   };
 
@@ -237,6 +263,34 @@ export default function VisitorHome() {
         </div>
       )}
 
+      {selectedSubscription && selectedTariff?.visitsAmount !== 1 && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-semibold text-slate-900">Заморозка</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Доступно {freezeDaysRemaining} из 15 дней
+              </p>
+              {isFrozen && (
+                <p className="mt-1 text-sm text-blue-700">
+                  {selectedSubscription.freezeUntilManual ? 'До ручной разморозки' : 'На выбранный срок'}
+                  {' · '}автоматически до {format(new Date(selectedSubscription.frozenUntil), 'd MMMM yyyy', { locale: ru })}
+                </p>
+              )}
+            </div>
+            {isFrozen ? (
+              <Button variant="secondary" loading={freezeSaving} onClick={handleUnfreeze}>
+                Разморозить
+              </Button>
+            ) : (
+              <Button disabled={!canFreeze} onClick={() => setFreezeOpen(true)}>
+                {freezeDaysRemaining > 0 ? 'Заморозить' : 'Лимит исчерпан'}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {isFrozen && (
         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 text-center">
           <p className="text-blue-800 font-medium">Абонемент заморожен</p>
@@ -254,6 +308,14 @@ export default function VisitorHome() {
           <p className="text-amber-600 text-sm mt-1">Приобретите абонемент в разделе «Тарифы»</p>
         </div>
       )}
+
+      <FreezeSubscriptionModal
+        isOpen={freezeOpen}
+        onClose={() => setFreezeOpen(false)}
+        subscription={selectedSubscription}
+        userId={user?.id}
+        onSuccess={refreshUser}
+      />
 
       <Modal
         isOpen={confirmOpen}

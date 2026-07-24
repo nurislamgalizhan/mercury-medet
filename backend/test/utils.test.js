@@ -13,6 +13,11 @@ import {
   getMillisecondsUntilNextDailyCleanup,
   hasExpiredSubscription,
 } from '../src/utils/subscription.js';
+import {
+  completeFreezePlan,
+  createFreezePlan,
+  freezePublicState,
+} from '../src/utils/freeze.js';
 
 test('normalizePhone normalizes local and international formats', () => {
   assert.equal(normalizePhone('7771234567'), '77771234567');
@@ -45,6 +50,55 @@ test('auth rate limiter blocks after too many attempts and can be reset', () => 
 
   clearFailedAttempts(ip, phone);
   assert.equal(getRateLimitState(ip, phone).blocked, false);
+});
+
+test('freeze plan extends the end date only by days actually used', () => {
+  const startedAt = new Date('2026-07-25T06:00:00.000Z');
+  const originalEnd = new Date('2026-08-10T12:00:00.000Z');
+  const subscription = {
+    subscriptionEnd: originalEnd,
+    freezeDaysUsed: 0,
+    freezeDaysReserved: 0,
+  };
+  const frozen = createFreezePlan(subscription, { mode: 'FIXED', days: 10 }, startedAt);
+  assert.equal(frozen.subscriptionEnd.toISOString(), '2026-08-20T12:00:00.000Z');
+
+  const completed = completeFreezePlan(frozen, new Date(startedAt.getTime() + 3.2 * 86400_000));
+  assert.equal(completed.consumedDays, 4);
+  assert.equal(completed.restoredDays, 6);
+  assert.equal(completed.subscriptionEnd.toISOString(), '2026-08-14T12:00:00.000Z');
+  assert.equal(completed.freezeDaysUsed, 4);
+});
+
+test('until-manual mode auto-finishes when all remaining freeze days are used', () => {
+  const startedAt = new Date('2026-07-25T06:00:00.000Z');
+  const frozen = createFreezePlan({
+    subscriptionEnd: new Date('2026-08-10T12:00:00.000Z'),
+    freezeDaysUsed: 5,
+    freezeDaysReserved: 0,
+  }, { mode: 'UNTIL_MANUAL' }, startedAt);
+
+  assert.equal(frozen.freezeDaysReserved, 10);
+  assert.equal(frozen.freezeUntilManual, true);
+  assert.equal(freezePublicState(frozen).freezeDaysRemaining, 0);
+
+  const completed = completeFreezePlan(frozen, frozen.frozenUntil);
+  assert.equal(completed.freezeDaysUsed, 15);
+  assert.equal(completed.restoredDays, 0);
+});
+
+test('legacy freeze completion never shifts an already-credited end date', () => {
+  const subscriptionEnd = new Date('2026-08-12T12:51:37.205Z');
+  const completed = completeFreezePlan({
+    subscriptionEnd,
+    frozenUntil: new Date('2026-07-26T00:00:00.000Z'),
+    freezeStartedAt: null,
+    freezeDaysUsed: 0,
+    freezeDaysReserved: 0,
+  }, new Date('2026-07-25T12:00:00.000Z'));
+
+  assert.equal(completed.subscriptionEnd.toISOString(), subscriptionEnd.toISOString());
+  assert.equal(completed.restoredDays, 0);
 });
 
 test('clearExpiredVisits resets remaining visits only after subscription expiry', async () => {
@@ -104,6 +158,7 @@ test('expired visits cleanup updates database rows due at the current time', asy
       },
     },
     userSubscription: {
+      findMany: async () => [],
       updateMany: async (payload) => {
         subscriptionUpdateManyPayloads.push(payload);
         return { count: subscriptionUpdateManyPayloads.length === 1 ? 3 : 4 };

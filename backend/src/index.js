@@ -7,7 +7,10 @@ import { Server } from 'socket.io';
 import { initSocket } from './socket/index.js';
 import { prisma } from './db.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { startDailyExpiredVisitsCleanupJob } from './utils/subscription.js';
+import {
+  startDailyExpiredVisitsCleanupJob,
+  startExpiredFreezeCleanupJob,
+} from './utils/subscription.js';
 
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
@@ -31,6 +34,7 @@ initSocket(io);
 
 app.disable('x-powered-by');
 startDailyExpiredVisitsCleanupJob(prisma);
+startExpiredFreezeCleanupJob(prisma);
 
 app.use(
   cors({

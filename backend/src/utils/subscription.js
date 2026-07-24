@@ -1,3 +1,5 @@
+import { clearedFreezeData, completeFreezePlan } from './freeze.js';
+
 export function hasExpiredSubscription(user, now = new Date()) {
   return Boolean(user?.subscriptionEnd && user.subscriptionEnd <= now);
 }
@@ -16,7 +18,52 @@ export async function clearExpiredVisits(prismaClient, user, now = new Date()) {
   return { ...user, visitsBalance: updated.visitsBalance, updatedAt: updated.updatedAt };
 }
 
+export async function finalizeExpiredFreezes(prismaClient, now = new Date()) {
+  const subscriptions = await prismaClient.userSubscription.findMany({
+    where: {
+      status: 'ACTIVE',
+      syncId: null,
+      frozenUntil: { not: null, lte: now },
+    },
+  });
+  let count = 0;
+
+  for (const subscription of subscriptions) {
+    const completed = completeFreezePlan(subscription, subscription.frozenUntil || now);
+    await prismaClient.$transaction(async (tx) => {
+      const result = await tx.userSubscription.updateMany({
+        where: { id: subscription.id, frozenUntil: subscription.frozenUntil },
+        data: clearedFreezeData(completed),
+      });
+      if (!result.count) return;
+      count += result.count;
+      await tx.user.update({
+        where: { id: subscription.userId },
+        data: {
+          subscriptionEnd: completed.subscriptionEnd,
+          frozenUntil: null,
+        },
+      });
+      await tx.adminActionLog.create({
+        data: {
+          adminId: null,
+          targetUserId: subscription.userId,
+          action: 'SUBSCRIPTION_UNFROZEN',
+          details: {
+            automatic: true,
+            daysUsed: completed.consumedDays,
+            daysRestored: completed.restoredDays,
+          },
+        },
+      });
+    });
+  }
+
+  return { count };
+}
+
 export async function clearExpiredVisitsForUsers(prismaClient, now = new Date()) {
+  await finalizeExpiredFreezes(prismaClient, now);
   const finiteTariffs = await prismaClient.tariff.findMany({
     where: { visitsAmount: { not: null } },
     select: { id: true },
@@ -55,6 +102,24 @@ export async function clearExpiredVisitsForUsers(prismaClient, now = new Date())
   ]);
 
   return { count: expiredSubscriptions.count + depletedSubscriptions.count + legacyUsers.count };
+}
+
+export function startExpiredFreezeCleanupJob(prismaClient, options = {}) {
+  const logger = options.logger || console;
+  const intervalMs = options.intervalMs || 60_000;
+  const timer = setInterval(() => {
+    finalizeExpiredFreezes(prismaClient)
+      .then((result) => {
+        if (result.count > 0) {
+          logger.log(`[Subscriptions] Automatically unfroze ${result.count} subscription(s)`);
+        }
+      })
+      .catch((err) => {
+        logger.error('[Subscriptions] Failed to finalize freezes:', err.message);
+      });
+  }, intervalMs);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
 }
 
 export function getMillisecondsUntilNextDailyCleanup(now = new Date()) {

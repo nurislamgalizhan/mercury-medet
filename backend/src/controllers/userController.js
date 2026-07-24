@@ -3,6 +3,13 @@ import { prisma } from '../db.js';
 import { usersQuerySchema, adjustUserSchema, createUserSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearExpiredVisits, clearExpiredVisitsForUsers } from '../utils/subscription.js';
+import {
+  clearedFreezeData,
+  completeFreezePlan,
+  createFreezePlan,
+  freezePublicState,
+  getFreezeDaysRemaining,
+} from '../utils/freeze.js';
 import { commandSharedSubscription, createIdempotencyKey } from '../services/syncClient.js';
 import { applySharedSubscriptionState } from '../services/sharedOperations.js';
 
@@ -14,6 +21,7 @@ function userPublic(user) {
 function subscriptionPublic(subscription) {
   return {
     ...subscription,
+    ...freezePublicState(subscription),
     isShared: Boolean(subscription.syncId),
     sourceSite: subscription.originSite,
   };
@@ -511,7 +519,7 @@ export async function freezeSubscription(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
     const isAdmin = req.userRole === 'ADMIN';
-    const { userSubscriptionId, freezeFrom, freezeTo } = freezeSchema.parse(req.body);
+    const { userSubscriptionId, mode, days } = freezeSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user || !user.isActive) {
@@ -538,26 +546,28 @@ export async function freezeSubscription(req, res, next) {
       return res.status(400).json({ message: 'Разовое посещение нельзя заморозить' });
     }
 
-    const freezeFromDate = new Date(freezeFrom);
-    const freezeToDate = new Date(freezeTo);
-    const freezeDays = Math.ceil((freezeToDate - freezeFromDate) / (24 * 60 * 60 * 1000));
-
-    if (freezeToDate > subscription.subscriptionEnd) {
-      return res.status(400).json({ message: 'Период заморозки выходит за рамки абонемента' });
+    const remainingDays = getFreezeDaysRemaining(subscription);
+    const requestedDays = mode === 'UNTIL_MANUAL' ? remainingDays : days;
+    if (remainingDays < 1) {
+      return res.status(400).json({ message: 'Дни заморозки по этому абонементу исчерпаны' });
+    }
+    if (requestedDays > remainingDays) {
+      return res.status(400).json({ message: `Доступно только ${remainingDays} дн. заморозки` });
     }
 
-    const newSubscriptionEnd = new Date(subscription.subscriptionEnd.getTime() + freezeDays * 24 * 60 * 60 * 1000);
+    const localPlan = subscription.syncId
+      ? null
+      : createFreezePlan(subscription, { mode, days: requestedDays });
 
     const sharedState = subscription.syncId
       ? await commandSharedSubscription(subscription.syncId, {
           type: 'FREEZE',
-          frozenUntil: freezeToDate.toISOString(),
-          subscriptionEnd: newSubscriptionEnd.toISOString(),
+          mode,
+          days: requestedDays,
           details: {
             sectionName: subscription.section.name,
-            freezeFrom: freezeFromDate.toISOString(),
-            frozenUntil: freezeToDate.toISOString(),
-            daysAdded: freezeDays,
+            mode,
+            requestedDays,
           },
           actorLabel: isAdmin ? `Меркурий Медет администратор #${req.userId}` : `Меркурий Медет клиент #${req.userId}`,
           idempotencyKey: createIdempotencyKey(`freeze:${subscription.syncId}`),
@@ -569,26 +579,46 @@ export async function freezeSubscription(req, res, next) {
         ? await applySharedSubscriptionState(tx, subscription, sharedState)
         : await tx.userSubscription.update({
             where: { id: subscription.id },
-            data: { frozenUntil: freezeToDate, subscriptionEnd: newSubscriptionEnd },
+            data: {
+              frozenUntil: localPlan.frozenUntil,
+              freezeStartedAt: localPlan.freezeStartedAt,
+              freezeDaysReserved: localPlan.freezeDaysReserved,
+              freezeUntilManual: localPlan.freezeUntilManual,
+              subscriptionEnd: localPlan.subscriptionEnd,
+            },
             include: { section: true, tariff: true },
           });
+      if (!sharedState) {
+        await tx.user.update({
+          where: { id },
+          data: {
+            frozenUntil: s.frozenUntil,
+            subscriptionEnd: s.subscriptionEnd,
+          },
+        });
+      }
 
       await createAdminAction(tx, {
-        adminId: req.userId,
+        adminId: isAdmin ? req.userId : null,
         targetUserId: id,
         action: 'SUBSCRIPTION_FROZEN',
         details: {
           sectionName: subscription.section.name,
-          freezeFrom: freezeFromDate.toISOString(),
-          frozenUntil: freezeToDate.toISOString(),
-          daysAdded: freezeDays,
+          mode,
+          requestedDays,
+          frozenUntil: s.frozenUntil?.toISOString(),
         },
       });
 
       return s;
     });
 
-    res.json({ message: `Абонемент заморожен на ${freezeDays} дн.`, frozenUntil: updated.frozenUntil });
+    res.json({
+      message: mode === 'UNTIL_MANUAL'
+        ? 'Абонемент заморожен до ручной разморозки'
+        : `Абонемент заморожен на ${requestedDays} дн.`,
+      subscription: subscriptionPublic(updated),
+    });
   } catch (err) {
     next(err);
   }
@@ -619,18 +649,12 @@ export async function unfreezeSubscription(req, res, next) {
       return res.status(400).json({ message: 'Абонемент не заморожен' });
     }
 
-    const now = new Date();
-    const remainingFreezeDays = Math.ceil((subscription.frozenUntil.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
-    const newSubscriptionEnd = new Date(subscription.subscriptionEnd.getTime() - remainingFreezeDays * 24 * 60 * 60 * 1000);
+    const completed = subscription.syncId ? null : completeFreezePlan(subscription);
 
     const sharedState = subscription.syncId
       ? await commandSharedSubscription(subscription.syncId, {
           type: 'UNFREEZE',
-          subscriptionEnd: newSubscriptionEnd.toISOString(),
-          details: {
-            sectionName: subscription.section.name,
-            daysRemoved: remainingFreezeDays,
-          },
+          details: { sectionName: subscription.section.name },
           actorLabel: isAdmin ? `Меркурий Медет администратор #${req.userId}` : `Меркурий Медет клиент #${req.userId}`,
           idempotencyKey: createIdempotencyKey(`unfreeze:${subscription.syncId}`),
         })
@@ -641,22 +665,32 @@ export async function unfreezeSubscription(req, res, next) {
         ? await applySharedSubscriptionState(tx, subscription, sharedState)
         : await tx.userSubscription.update({
             where: { id: subscription.id },
-            data: { frozenUntil: null, subscriptionEnd: newSubscriptionEnd },
+            data: clearedFreezeData(completed),
             include: { section: true, tariff: true },
           });
+      if (!sharedState) {
+        await tx.user.update({
+          where: { id },
+          data: {
+            frozenUntil: null,
+            subscriptionEnd: nextSubscription.subscriptionEnd,
+          },
+        });
+      }
       await createAdminAction(tx, {
         adminId: isAdmin ? req.userId : null,
         targetUserId: id,
         action: 'SUBSCRIPTION_UNFROZEN',
         details: {
           sectionName: subscription.section.name,
-          daysRemoved: remainingFreezeDays,
+          daysUsed: sharedState?.lastFreezeDaysUsed ?? completed?.consumedDays ?? 0,
+          daysRestored: sharedState?.lastFreezeDaysRestored ?? completed?.restoredDays ?? 0,
         },
       });
       return nextSubscription;
     });
 
-    res.json({ message: 'Абонемент разморожен', subscriptionEnd: updated.subscriptionEnd });
+    res.json({ message: 'Абонемент разморожен', subscription: subscriptionPublic(updated) });
   } catch (err) {
     next(err);
   }

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { addDays, format } from 'date-fns';
+import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import SellTariffModal from '../../components/admin/SellTariffModal.jsx';
+import FreezeSubscriptionModal from '../../components/FreezeSubscriptionModal.jsx';
 import { useTariffs } from '../../hooks/useTariffs.js';
 
 const PAYMENT_LABEL = { CASH: 'Наличные', KASPI: 'Kaspi', HALYK: 'Halyk', MIXED: 'Смешанная' };
@@ -16,12 +17,6 @@ const SUBSCRIPTION_STATUS_LABEL = {
   REFUNDED: 'Возврат',
   CANCELLED: 'Деактивирован',
 };
-
-function toLocalDateStr(date) {
-  const d = new Date(date);
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 10);
-}
 
 export default function UserDetailPage() {
   const { id } = useParams();
@@ -36,7 +31,6 @@ export default function UserDetailPage() {
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkinVisits, setCheckinVisits] = useState(1);
   const [freezeOpen, setFreezeOpen] = useState(false);
-  const [freezeForm, setFreezeForm] = useState({ from: '', to: '' });
   const [saving, setSaving] = useState(false);
   const [refundSale, setRefundSale] = useState(null);
   const [refundAmount, setRefundAmount] = useState('');
@@ -78,13 +72,7 @@ export default function UserDetailPage() {
   };
 
   const openFreeze = (subscription) => {
-    const today = toLocalDateStr(new Date());
-    const maxTo = toLocalDateStr(new Date(Math.min(
-      new Date(subscription.subscriptionEnd).getTime(),
-      addDays(new Date(), 15).getTime()
-    )));
     setSelectedSubscription(subscription);
-    setFreezeForm({ from: today, to: maxTo });
     setFreezeOpen(true);
   };
 
@@ -120,25 +108,6 @@ export default function UserDetailPage() {
       fetchUser();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Ошибка списания');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleFreeze = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await api.post(`/users/${id}/freeze`, {
-        userSubscriptionId: selectedSubscription.id,
-        freezeFrom: new Date(freezeForm.from).toISOString(),
-        freezeTo: new Date(freezeForm.to).toISOString(),
-      });
-      toast.success('Абонемент заморожен');
-      setFreezeOpen(false);
-      fetchUser();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Ошибка заморозки');
     } finally {
       setSaving(false);
     }
@@ -310,12 +279,17 @@ export default function UserDetailPage() {
                   <p className="font-medium text-slate-900">{format(new Date(subscription.subscriptionEnd), 'dd.MM.yyyy')}</p>
                 </div>
               </div>
+              {isActive && subscription.tariff?.visitsAmount !== 1 && (
+                <p className="mt-3 text-xs text-slate-500">
+                  Заморозка: доступно {subscription.freezeDaysRemaining ?? 15} из 15 дней
+                </p>
+              )}
               {isFrozen && <p className="mt-3 text-sm text-blue-700 bg-blue-50 rounded-xl px-3 py-2">Заморожен до {format(new Date(subscription.frozenUntil), 'dd.MM.yyyy')}</p>}
               {isActive && (
                 <div className="flex flex-wrap gap-2 mt-4">
                   <Button size="sm" variant="secondary" onClick={() => openCheckin(subscription)}>Списать</Button>
                   {!isUnlimited && <Button size="sm" variant="secondary" onClick={() => openAdjust(subscription)}>Корректировка</Button>}
-                  {!isFrozen && subscription.tariff?.visitsAmount !== 1 && <Button size="sm" variant="secondary" onClick={() => openFreeze(subscription)}>Заморозить</Button>}
+                  {!isFrozen && subscription.tariff?.visitsAmount !== 1 && (subscription.freezeDaysRemaining ?? 15) > 0 && <Button size="sm" variant="secondary" onClick={() => openFreeze(subscription)}>Заморозить</Button>}
                   {isFrozen && <Button size="sm" variant="secondary" onClick={() => handleUnfreeze(subscription)}>Разморозить</Button>}
                   <Button size="sm" variant="danger" onClick={() => openCancelSubscription(subscription)}>Деактивировать</Button>
                 </div>
@@ -384,15 +358,13 @@ export default function UserDetailPage() {
         </form>
       </Modal>
 
-      <Modal isOpen={freezeOpen} onClose={() => setFreezeOpen(false)} title={`Заморозить · ${selectedSubscription?.section?.name || ''}`}>
-        <form onSubmit={handleFreeze} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="С даты" type="date" min={toLocalDateStr(new Date())} value={freezeForm.from} onChange={(e) => setFreezeForm((f) => ({ ...f, from: e.target.value }))} required />
-            <Input label="По дату" type="date" min={freezeForm.from || toLocalDateStr(new Date())} value={freezeForm.to} onChange={(e) => setFreezeForm((f) => ({ ...f, to: e.target.value }))} required />
-          </div>
-          <Button type="submit" loading={saving} className="w-full">Заморозить</Button>
-        </form>
-      </Modal>
+      <FreezeSubscriptionModal
+        isOpen={freezeOpen}
+        onClose={() => setFreezeOpen(false)}
+        subscription={selectedSubscription}
+        userId={id}
+        onSuccess={fetchUser}
+      />
 
       <Modal isOpen={Boolean(refundSale)} onClose={() => setRefundSale(null)} title="Возврат абонемента">
         <form onSubmit={handleRefund} className="space-y-4">

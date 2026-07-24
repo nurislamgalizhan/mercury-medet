@@ -150,19 +150,29 @@ export const adminCheckInSchema = z.object({
 
 export const freezeSchema = z.object({
   userSubscriptionId: z.number().int().positive().optional(),
-  freezeFrom: z.string().datetime({ offset: true }),
-  freezeTo: z.string().datetime({ offset: true }),
+  mode: z.enum(['FIXED', 'UNTIL_MANUAL']).optional(),
+  days: z.number().int().min(1).max(15).optional(),
+  // Kept temporarily so an already-open browser tab can use the new backend.
+  freezeFrom: z.string().datetime({ offset: true }).optional(),
+  freezeTo: z.string().datetime({ offset: true }).optional(),
 }).superRefine((val, ctx) => {
-  const from = new Date(val.freezeFrom);
-  const to = new Date(val.freezeTo);
-  if (to <= from) {
-    ctx.addIssue({ code: 'custom', message: 'Дата окончания должна быть позже даты начала', path: ['freezeTo'] });
+  if (val.mode === 'UNTIL_MANUAL') return;
+  if (val.days) return;
+  if (!val.freezeFrom || !val.freezeTo) {
+    ctx.addIssue({ code: 'custom', message: 'Укажите количество дней заморозки', path: ['days'] });
+    return;
   }
-  const days = Math.ceil((to - from) / (24 * 60 * 60 * 1000));
-  if (days > 15) {
-    ctx.addIssue({ code: 'custom', message: 'Максимальный срок заморозки — 15 дней', path: ['freezeTo'] });
+  const legacyDays = Math.ceil((new Date(val.freezeTo) - new Date(val.freezeFrom)) / (24 * 60 * 60 * 1000));
+  if (legacyDays < 1 || legacyDays > 15) {
+    ctx.addIssue({ code: 'custom', message: 'Период заморозки должен быть от 1 до 15 дней', path: ['freezeTo'] });
   }
-});
+}).transform((val) => ({
+  userSubscriptionId: val.userSubscriptionId,
+  mode: val.mode || 'FIXED',
+  days: val.mode === 'UNTIL_MANUAL'
+    ? undefined
+    : val.days || Math.ceil((new Date(val.freezeTo) - new Date(val.freezeFrom)) / (24 * 60 * 60 * 1000)),
+}));
 
 export const cancelSubscriptionSchema = z.object({
   confirmDeactivation: z.literal(true, {

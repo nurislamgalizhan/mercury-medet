@@ -54,9 +54,17 @@ function renderDetails(log) {
   if (log.action === 'SUBSCRIPTION_FROZEN') {
     const from = details.freezeFrom ? new Date(details.freezeFrom).toLocaleDateString('ru-RU') : null;
     const until = details.frozenUntil ? new Date(details.frozenUntil).toLocaleDateString('ru-RU') : '';
+    if (details.requestedDays) {
+      return details.mode === 'UNTIL_MANUAL'
+        ? `Заморожен до ручной разморозки${until ? ` (авто до ${until})` : ''}`
+        : `Заморожен на ${details.requestedDays} дн.${until ? ` (до ${until})` : ''}`;
+    }
     return from
       ? `Заморожен на ${details.daysAdded} дн. (${from} — ${until})`
       : `Заморожен на ${details.daysAdded ?? 15} дней${until ? ` (до ${until})` : ''}`;
+  }
+  if (log.action === 'SUBSCRIPTION_UNFROZEN' && details.daysUsed !== undefined) {
+    return `${details.automatic ? 'Автоматически разморожен' : 'Разморожен'} · использовано ${details.daysUsed} дн.`;
   }
 
   if (log.action === 'SUBSCRIPTION_CANCELLED') {

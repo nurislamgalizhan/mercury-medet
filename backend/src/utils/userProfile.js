@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
 import { clearExpiredVisits, clearExpiredVisitsForUsers } from './subscription.js';
+import { freezePublicState } from './freeze.js';
 
 const TIME_TYPE_LABELS = {
   ANY: 'Любое время',
@@ -56,6 +57,7 @@ export async function buildUserProfile(inputUser) {
       visitsBalance: subscription.visitsBalance,
       subscriptionEnd: subscription.subscriptionEnd,
       frozenUntil: subscription.frozenUntil,
+      ...freezePublicState(subscription),
       status: subscription.status,
       isShared: Boolean(subscription.syncId),
       sourceSite: subscription.originSite,
@@ -69,6 +71,7 @@ export async function buildUserProfile(inputUser) {
     ...sanitizeUser(user),
     subscriptions: subscriptions.map((subscription) => ({
       ...subscription,
+      ...freezePublicState(subscription),
       isShared: Boolean(subscription.syncId),
       sourceSite: subscription.originSite,
     })),
