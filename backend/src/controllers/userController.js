@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
 import { usersQuerySchema, adjustUserSchema, createUserSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
+import { generateTemporaryPassword } from '../utils/registrationSecurity.js';
+import { clearFailedAttemptsForIdentifier } from '../utils/authRateLimit.js';
 import { clearExpiredVisits, clearExpiredVisitsForUsers } from '../utils/subscription.js';
 import {
   clearedFreezeData,
@@ -14,7 +16,14 @@ import { commandSharedSubscription, createIdempotencyKey } from '../services/syn
 import { applySharedSubscriptionState } from '../services/sharedOperations.js';
 
 function userPublic(user) {
-  const { passwordHash, verificationCode, verificationCodeExpires, ...rest } = user;
+  const {
+    passwordHash,
+    verificationCode,
+    verificationCodeExpires,
+    tokenVersion,
+    registrationStatusTokenHash,
+    ...rest
+  } = user;
   return rest;
 }
 
@@ -217,6 +226,56 @@ export async function createUser(req, res, next) {
     });
 
     res.status(201).json(userPublic(user));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function resetClientPassword(req, res, next) {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ message: 'Некорректный клиент' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user || !user.isActive) {
+      return res.status(404).json({ message: 'Клиент не найден' });
+    }
+    if (user.role !== 'VISITOR') {
+      return res.status(403).json({ message: 'Здесь можно сбросить пароль только клиента' });
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id },
+        data: {
+          passwordHash,
+          mustChangePassword: true,
+          tokenVersion: { increment: 1 },
+          verificationCode: null,
+          verificationCodeExpires: null,
+        },
+      });
+      await createAdminAction(tx, {
+        adminId: req.userId,
+        targetUserId: id,
+        action: 'CLIENT_PASSWORD_RESET',
+        details: {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+        },
+      });
+    });
+    clearFailedAttemptsForIdentifier(user.phone);
+
+    res.json({
+      message: 'Временный пароль создан',
+      temporaryPassword,
+    });
   } catch (err) {
     next(err);
   }

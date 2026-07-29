@@ -39,6 +39,9 @@ export default function UserDetailPage() {
   const [subscriptionToCancel, setSubscriptionToCancel] = useState(null);
   const [subscriptionToActivate, setSubscriptionToActivate] = useState(null);
   const [activateForm, setActivateForm] = useState({ visitsBalance: '' });
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
 
   const fetchUser = async () => {
     try {
@@ -54,6 +57,24 @@ export default function UserDetailPage() {
 
   useEffect(() => { fetchUser(); }, [id]);
   useEffect(() => { fetchTariffs(); }, [fetchTariffs]);
+
+  const handleResetPassword = async () => {
+    setResetPasswordLoading(true);
+    try {
+      const { data } = await api.post(`/users/${id}/reset-password`);
+      setTemporaryPassword(data.temporaryPassword);
+      toast.success('Временный пароль создан');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Не удалось сбросить пароль');
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
+
+  const closeResetPassword = () => {
+    setResetPasswordOpen(false);
+    setTemporaryPassword('');
+  };
 
   const subscriptions = user?.subscriptions || [];
   const activeSubscriptions = subscriptions.filter((s) => s.status === 'ACTIVE');
@@ -246,7 +267,10 @@ export default function UserDetailPage() {
           <p className="text-slate-500">{user.phone}</p>
           <p className="text-xs text-slate-400 mt-1">Активных абонементов: {activeSubscriptions.length}</p>
         </div>
-        <Button onClick={() => setSellOpen(true)}>Продать абонемент</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setResetPasswordOpen(true)}>Сбросить пароль</Button>
+          <Button onClick={() => setSellOpen(true)}>Продать абонемент</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -343,6 +367,38 @@ export default function UserDetailPage() {
       </div>
 
       <SellTariffModal isOpen={sellOpen} onClose={() => setSellOpen(false)} user={user} onSuccess={fetchUser} />
+
+      <Modal isOpen={resetPasswordOpen} onClose={closeResetPassword} title="Сбросить пароль">
+        {temporaryPassword ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Передайте пароль клиенту сейчас. После закрытия он больше не будет показан.
+            </p>
+            <div className="rounded-xl bg-slate-900 text-white px-4 py-4 text-center text-xl font-mono tracking-wider select-all">
+              {temporaryPassword}
+            </div>
+            <Button
+              className="w-full"
+              onClick={async () => {
+                await navigator.clipboard.writeText(temporaryPassword);
+                toast.success('Пароль скопирован');
+              }}
+            >
+              Копировать
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Все текущие сессии клиента завершатся. При следующем входе он будет обязан создать новый пароль.
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={closeResetPassword}>Отмена</Button>
+              <Button className="flex-1" loading={resetPasswordLoading} onClick={handleResetPassword}>Сбросить</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal isOpen={checkinOpen} onClose={() => setCheckinOpen(false)} title={`Списать посещение · ${selectedSubscription?.section?.name || ''}`}>
         <form onSubmit={handleAdminCheckin} className="space-y-4">

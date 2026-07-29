@@ -20,6 +20,13 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
+    if (
+      error.response?.status === 428
+      && error.response?.data?.code === 'PASSWORD_CHANGE_REQUIRED'
+      && window.location.pathname !== '/change-temporary-password'
+    ) {
+      window.location.href = '/change-temporary-password';
+    }
     return Promise.reject(error);
   }
 );

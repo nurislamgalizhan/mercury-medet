@@ -29,7 +29,7 @@ export default function ForgotPasswordPage() {
   const handleSendCode = async (event) => {
     event.preventDefault();
     if (!isCompletePhone(phone)) {
-      setPhoneError('Введите номер в формате +7 (XXX) XXX-XX-XX');
+      setPhoneError('Введите номер в формате +7 XXX XXX XX XX');
       return;
     }
 

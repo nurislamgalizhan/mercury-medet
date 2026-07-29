@@ -9,7 +9,14 @@ const TIME_TYPE_LABELS = {
 };
 
 function sanitizeUser(user) {
-  const { passwordHash, verificationCode, verificationCodeExpires, ...rest } = user;
+  const {
+    passwordHash,
+    verificationCode,
+    verificationCodeExpires,
+    tokenVersion,
+    registrationStatusTokenHash,
+    ...rest
+  } = user;
   return rest;
 }
 

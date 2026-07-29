@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 const navItems = [
   { to: '/admin', label: 'Главная', end: true, icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
   { to: '/admin/users', label: 'Клиенты', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
+  { to: '/admin/verification', label: 'Верификация клиентов', verification: true, icon: 'M9 12l2 2 4-4m5-4.5A11.95 11.95 0 0112 3a11.95 11.95 0 01-8 2.5V11c0 5.25 3.44 8.75 8 10 4.56-1.25 8-4.75 8-10V5.5z' },
   { to: '/admin/visits', label: 'Посещения', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2m-6 0a2 2 0 002 2h2a2 2 0 002-2m-6 0a2 2 0 012-2h2a2 2 0 012 2m-3 8l2 2 4-4' },
   { to: '/admin/accounting', label: 'Бухгалтерия', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
   { to: '/admin/history', label: 'История изменений', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -21,6 +22,7 @@ export default function AdminLayout() {
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [pwLoading, setPwLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [verificationCount, setVerificationCount] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -37,6 +39,25 @@ export default function AdminLayout() {
     return () => {
       active = false;
       clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadCount = async () => {
+      try {
+        const { data } = await api.get('/verification-requests', { params: { page: 1, limit: 1 } });
+        if (active) setVerificationCount(data.meta.total);
+      } catch {}
+    };
+    const updateFromPage = (event) => setVerificationCount(event.detail);
+    loadCount();
+    const timer = setInterval(loadCount, 30_000);
+    window.addEventListener('verification-count', updateFromPage);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('verification-count', updateFromPage);
     };
   }, []);
 
@@ -97,7 +118,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
-          {navItems.map(({ to, label, end, icon }) => (
+          {navItems.map(({ to, label, end, icon, verification }) => (
             <NavLink
               key={to}
               to={to}
@@ -112,7 +133,12 @@ export default function AdminLayout() {
               <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={icon} />
               </svg>
-              {label}
+              <span className="flex-1">{label}</span>
+              {verification && verificationCount > 0 && (
+                <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                  {verificationCount > 99 ? '99+' : verificationCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

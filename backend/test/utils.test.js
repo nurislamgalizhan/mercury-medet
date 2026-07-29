@@ -4,6 +4,7 @@ import { normalizePhone } from '../src/utils/phone.js';
 import { getDuplicateVisitWarning } from '../src/utils/visits.js';
 import {
   clearFailedAttempts,
+  clearFailedAttemptsForIdentifier,
   getRateLimitState,
   registerFailedAttempt,
 } from '../src/utils/authRateLimit.js';
@@ -18,6 +19,102 @@ import {
   createFreezePlan,
   freezePublicState,
 } from '../src/utils/freeze.js';
+import { createThrottledQueue } from '../src/utils/messageQueue.js';
+import { buildVerificationMessage } from '../src/services/whatsappService.js';
+import { checkResendCooldown } from '../src/controllers/authController.js';
+import {
+  cleanupExpiredRegistrationRequests,
+  createRegistrationStatusToken,
+  generateTemporaryPassword,
+  hashRegistrationStatusToken,
+} from '../src/utils/registrationSecurity.js';
+
+test('verification message starts with a sanitized client name and keeps the code visible', () => {
+  const message = buildVerificationMessage('  Алия\n_*  ', '123456');
+
+  assert.equal(message.startsWith('Здравствуйте, Алия!'), true);
+  assert.match(message, /Код подтверждения: \*123456\*/);
+  assert.match(message, /Если вы не запрашивали код/);
+  assert.equal(message.includes('\n_*'), false);
+});
+
+test('registration resend cooldown blocks a fresh code and allows an older one', () => {
+  const originalNow = Date.now;
+  Date.now = () => new Date('2026-07-30T12:00:00.000Z').getTime();
+
+  try {
+    assert.equal(checkResendCooldown(new Date('2026-07-30T12:09:45.000Z')), 45);
+    assert.equal(checkResendCooldown(new Date('2026-07-30T12:08:00.000Z')), null);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('WhatsApp queue serializes messages and rejects excess pending messages', async () => {
+  let currentTime = 1000;
+  let releaseFirst;
+  const firstTask = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const waits = [];
+  const starts = [];
+  const enqueue = createThrottledQueue({
+    intervalMs: 5000,
+    maxPending: 3,
+    now: () => currentTime,
+    wait: async (milliseconds) => {
+      waits.push(milliseconds);
+      currentTime += milliseconds;
+    },
+  });
+
+  await Promise.all([
+    enqueue(async () => starts.push(currentTime)),
+    enqueue(async () => starts.push(currentTime)),
+    enqueue(async () => starts.push(currentTime)),
+  ]);
+  assert.deepEqual(starts, [1000, 6000, 11000]);
+  assert.deepEqual(waits, [5000, 5000]);
+
+  const limitedQueue = createThrottledQueue({ intervalMs: 1, maxPending: 1 });
+  const first = limitedQueue(() => firstTask);
+  await assert.rejects(limitedQueue(async () => 'second'), (error) => error.statusCode === 503);
+  releaseFirst();
+  await first;
+});
+
+test('registration status tokens and temporary passwords use safe formats', () => {
+  const first = createRegistrationStatusToken();
+  const second = createRegistrationStatusToken();
+  assert.notEqual(first.token, second.token);
+  assert.equal(first.tokenHash, hashRegistrationStatusToken(first.token));
+  assert.match(generateTemporaryPassword(), /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+});
+
+test('registration cleanup removes requests older than 30 days', async () => {
+  const now = new Date('2026-07-30T12:00:00.000Z');
+  const operations = [];
+  const prismaClient = {
+    adminVerificationRequest: {
+      deleteMany: (payload) => {
+        operations.push(['admin', payload]);
+        return Promise.resolve({ count: 2 });
+      },
+    },
+    registrationAttempt: {
+      deleteMany: (payload) => {
+        operations.push(['whatsapp', payload]);
+        return Promise.resolve({ count: 3 });
+      },
+    },
+    $transaction: (queries) => Promise.all(queries),
+  };
+
+  const result = await cleanupExpiredRegistrationRequests(prismaClient, now);
+  assert.deepEqual(result, { adminRequests: 2, whatsappAttempts: 3 });
+  assert.equal(operations.length, 2);
+  assert.equal(operations[0][1].where.createdAt.lt.toISOString(), '2026-06-30T12:00:00.000Z');
+});
 
 test('normalizePhone normalizes local and international formats', () => {
   assert.equal(normalizePhone('7771234567'), '77771234567');
@@ -50,6 +147,14 @@ test('auth rate limiter blocks after too many attempts and can be reset', () => 
 
   clearFailedAttempts(ip, phone);
   assert.equal(getRateLimitState(ip, phone).blocked, false);
+
+  for (let index = 0; index < 10; index += 1) {
+    registerFailedAttempt('10.0.0.1', phone);
+    registerFailedAttempt('10.0.0.2', phone);
+  }
+  clearFailedAttemptsForIdentifier(phone);
+  assert.equal(getRateLimitState('10.0.0.1', phone).blocked, false);
+  assert.equal(getRateLimitState('10.0.0.2', phone).blocked, false);
 });
 
 test('freeze plan extends the end date only by days actually used', () => {

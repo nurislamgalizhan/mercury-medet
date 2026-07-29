@@ -11,6 +11,7 @@ import {
   getAdminActionLogs,
   freezeSubscription,
   unfreezeSubscription,
+  resetClientPassword,
 } from '../controllers/userController.js';
 
 const router = Router();
@@ -24,6 +25,7 @@ router.use(authenticate, requireVerified, requireAdmin);
 router.get('/', getUsers);
 router.get('/admin-history', getAdminActionLogs);
 router.post('/', createUser);
+router.post('/:id/reset-password', resetClientPassword);
 router.get('/:id', getUserById);
 router.patch('/:id/adjust', adjustUser);
 router.post('/:id/subscriptions/:subscriptionId/cancel', cancelSubscription);

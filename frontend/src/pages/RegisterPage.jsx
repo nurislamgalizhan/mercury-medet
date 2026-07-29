@@ -10,6 +10,8 @@ import { isCompletePhone, toApiPhone } from '../utils/phone.js';
 const NAME_REGEX = /^[a-zA-ZА-ЯЁа-яё][a-zA-ZА-ЯЁа-яё\s-]*$/;
 const PENDING_VERIFICATION_PHONE_KEY = 'pendingVerificationPhone';
 const PENDING_VERIFICATION_COOLDOWN_KEY = 'pendingVerificationCooldownUntil';
+const PENDING_VERIFICATION_TOKEN_KEY = 'pendingVerificationToken';
+const PENDING_ADMIN_VERIFICATION_TOKEN_KEY = 'pendingAdminVerificationToken';
 
 function persistVerificationCooldown(seconds) {
   if ((seconds ?? 0) > 0) {
@@ -25,7 +27,14 @@ function persistVerificationCooldown(seconds) {
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ firstName: '', lastName: '', phone: '', password: '', confirm: '' });
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    password: '',
+    confirm: '',
+    verificationMethod: '',
+  });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
@@ -40,10 +49,11 @@ export default function RegisterPage() {
     else if (!NAME_REGEX.test(form.lastName)) nextErrors.lastName = 'Только буквы, пробел и дефис';
     else if (form.lastName.length > 200) nextErrors.lastName = 'Максимум 200 символов';
 
-    if (!isCompletePhone(form.phone)) nextErrors.phone = 'Введите номер в формате +7 (XXX) XXX-XX-XX';
+    if (!isCompletePhone(form.phone)) nextErrors.phone = 'Введите номер в формате +7 XXX XXX XX XX';
     if (form.password.length < 6) nextErrors.password = 'Минимум 6 символов';
     else if (form.password.length > 200) nextErrors.password = 'Максимум 200 символов';
     if (form.password !== form.confirm) nextErrors.confirm = 'Пароли не совпадают';
+    if (!form.verificationMethod) nextErrors.verificationMethod = 'Выберите способ подтверждения';
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -65,13 +75,22 @@ export default function RegisterPage() {
       lastName: form.lastName.trim(),
       phone: toApiPhone(form.phone),
       password: form.password,
+      verificationMethod: form.verificationMethod,
     };
 
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', payload);
+      if (data.status === 'PENDING_ADMIN') {
+        sessionStorage.setItem(PENDING_ADMIN_VERIFICATION_TOKEN_KEY, data.requestToken);
+        toast.success('Заявка отправлена администратору');
+        navigate('/verification-pending');
+        return;
+      }
+
       const resendCooldown = data.resendCooldown ?? 60;
       sessionStorage.setItem(PENDING_VERIFICATION_PHONE_KEY, payload.phone);
+      sessionStorage.setItem(PENDING_VERIFICATION_TOKEN_KEY, data.requestToken);
       persistVerificationCooldown(resendCooldown);
       toast.success('Код подтверждения отправлен в WhatsApp');
       navigate('/verify', { state: { phone: payload.phone, resendCooldown } });
@@ -140,7 +159,44 @@ export default function RegisterPage() {
             error={errors.confirm}
           />
 
-          <Button type="submit" loading={loading} className="w-full" size="lg">
+          <fieldset>
+            <legend className="block text-sm font-medium text-slate-700 mb-2">
+              Способ подтверждения
+            </legend>
+            <div className="grid grid-cols-2 rounded-lg border border-slate-200 p-1 gap-1">
+              {[
+                ['WHATSAPP', 'WhatsApp'],
+                ['ADMIN', 'Через администратора'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setForm((current) => ({ ...current, verificationMethod: value }));
+                    setErrors((current) => ({ ...current, verificationMethod: undefined }));
+                  }}
+                  className={`min-h-11 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    form.verificationMethod === value
+                      ? 'bg-brand-600 text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {errors.verificationMethod && (
+              <p className="mt-1.5 text-sm text-red-600">{errors.verificationMethod}</p>
+            )}
+          </fieldset>
+
+          <Button
+            type="submit"
+            loading={loading}
+            disabled={!form.verificationMethod}
+            className="w-full"
+            size="lg"
+          >
             Зарегистрироваться
           </Button>
 

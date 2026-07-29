@@ -6,6 +6,10 @@ import {
   loginSchema,
   verifyCodeSchema,
   resendCodeSchema,
+  verifyRegistrationSchema,
+  resendRegistrationCodeSchema,
+  registrationStatusSchema,
+  completeTemporaryPasswordSchema,
 } from '../schemas/index.js';
 import {
   sendVerificationCode,
@@ -17,118 +21,171 @@ import {
   registerFailedAttempt,
 } from '../utils/authRateLimit.js';
 import { buildUserProfile } from '../utils/userProfile.js';
+import {
+  cleanupExpiredRegistrationRequests,
+  createRegistrationStatusToken,
+  hashRegistrationStatusToken,
+} from '../utils/registrationSecurity.js';
+
+const CODE_TTL_MS = 10 * 60 * 1000;
+const RESEND_COOLDOWN_SECONDS = 60;
 
 function signToken(user) {
   return jwt.sign(
-    { userId: user.id, role: user.role },
+    { userId: user.id, role: user.role, tokenVersion: user.tokenVersion ?? 0 },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 }
 
-function checkResendCooldown(verificationCodeExpires) {
+export function checkResendCooldown(verificationCodeExpires) {
   if (!verificationCodeExpires) return null;
-  const sentAt = new Date(verificationCodeExpires.getTime() - 10 * 60 * 1000);
-  const secondsLeft = Math.ceil((sentAt.getTime() + 60 * 1000 - Date.now()) / 1000);
+  const sentAt = new Date(verificationCodeExpires.getTime() - CODE_TTL_MS);
+  const secondsLeft = Math.ceil(
+    (sentAt.getTime() + RESEND_COOLDOWN_SECONDS * 1000 - Date.now()) / 1000
+  );
   return secondsLeft > 0 ? secondsLeft : null;
+}
+
+async function findRegistrationAttempt({ phone, requestToken }) {
+  if (requestToken) {
+    return prisma.registrationAttempt.findUnique({
+      where: { statusTokenHash: hashRegistrationStatusToken(requestToken) },
+    });
+  }
+  return prisma.registrationAttempt.findUnique({ where: { phone } });
 }
 
 async function issueCodeToAttempt(attemptId, phone, context) {
   const code = generateVerificationCode();
-  const expires = new Date(Date.now() + 10 * 60 * 1000);
-
+  const expires = new Date(Date.now() + CODE_TTL_MS);
   const updated = await prisma.registrationAttempt.update({
     where: { id: attemptId },
     data: { verificationCode: code, verificationCodeExpires: expires },
   });
 
   try {
-    await sendVerificationCode(phone, code);
-    return { ok: true, attempt: updated, resendCooldown: 60 };
-  } catch (err) {
-    console.error(`[${context}] WhatsApp error:`, err.message);
+    await sendVerificationCode(phone, code, updated.firstName);
+    return { ok: true, attempt: updated, resendCooldown: RESEND_COOLDOWN_SECONDS };
+  } catch (error) {
+    console.error(`[${context}] Green API error:`, error.message);
     await prisma.registrationAttempt.update({
       where: { id: attemptId },
-      data: { verificationCode: null, verificationCodeExpires: null },
+      data: { verificationCode: null },
     });
-    return { ok: false, error: err };
+    return { ok: false, error };
   }
 }
 
 async function issueCodeToUser(userId, phone, context) {
   const code = generateVerificationCode();
-  const expires = new Date(Date.now() + 10 * 60 * 1000);
-
+  const expires = new Date(Date.now() + CODE_TTL_MS);
   const updated = await prisma.user.update({
     where: { id: userId },
     data: { verificationCode: code, verificationCodeExpires: expires },
   });
 
   try {
-    await sendVerificationCode(phone, code);
-    return { ok: true, user: updated, resendCooldown: 60 };
-  } catch (err) {
-    console.error(`[${context}] WhatsApp error:`, err.message);
+    await sendVerificationCode(phone, code, updated.firstName);
+    return { ok: true, user: updated, resendCooldown: RESEND_COOLDOWN_SECONDS };
+  } catch (error) {
+    console.error(`[${context}] Green API error:`, error.message);
     await prisma.user.update({
       where: { id: userId },
-      data: { verificationCode: null, verificationCodeExpires: null },
+      data: { verificationCode: null },
     });
-    return { ok: false, user: updated, error: err };
+    return { ok: false, user: updated, error };
   }
 }
 
-// ─── REGISTER ────────────────────────────────────────────────────────────────
-// Saves to RegistrationAttempt (NOT User) until phone is verified
 export async function register(req, res, next) {
   try {
-    const { firstName, lastName, phone, password } = registerSchema.parse(req.body);
+    const {
+      firstName,
+      lastName,
+      phone,
+      password,
+      verificationMethod,
+    } = registerSchema.parse(req.body);
 
-    // Verified user with this phone already exists
     const existingUser = await prisma.user.findUnique({ where: { phone } });
-    if (existingUser?.isVerified) {
+    if (existingUser) {
       return res.status(409).json({ message: 'Пользователь с таким номером уже существует' });
     }
 
-    // Cleanup stale expired attempts
-    await prisma.registrationAttempt.deleteMany({
-      where: {
-        phone,
-        verificationCodeExpires: { lt: new Date() },
-      },
-    });
-
+    await cleanupExpiredRegistrationRequests(prisma);
     const passwordHash = await bcrypt.hash(password, 12);
+    const { token: requestToken, tokenHash: statusTokenHash } = createRegistrationStatusToken();
 
-    // Upsert registration attempt (not User table)
+    if (verificationMethod === 'ADMIN') {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const created = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${phone}))`;
+        const recentRequests = await tx.adminVerificationRequest.count({
+          where: { phone, createdAt: { gte: since } },
+        });
+        if (recentRequests >= 3) return false;
+        await tx.adminVerificationRequest.create({
+          data: {
+            firstName,
+            lastName,
+            phone,
+            passwordHash,
+            statusTokenHash,
+          },
+        });
+        return true;
+      });
+      if (!created) {
+        return res.status(429).json({
+          message: 'Для этого номера уже создано три заявки за последние 24 часа',
+        });
+      }
+
+      return res.status(202).json({
+        message: 'Заявка отправлена администратору',
+        status: 'PENDING_ADMIN',
+        requestToken,
+      });
+    }
+
+    const existingAttempt = await prisma.registrationAttempt.findUnique({ where: { phone } });
+    const secondsLeft = checkResendCooldown(existingAttempt?.verificationCodeExpires);
+    if (secondsLeft) {
+      return res.status(429).json({
+        message: `Код уже отправлен. Подождите ${secondsLeft} сек. перед повторной отправкой`,
+        resendCooldown: secondsLeft,
+      });
+    }
+
     const attempt = await prisma.registrationAttempt.upsert({
       where: { phone },
-      update: { passwordHash, firstName, lastName, verificationCode: null, verificationCodeExpires: null },
-      create: { phone, passwordHash, firstName, lastName },
+      update: { passwordHash, firstName, lastName, statusTokenHash },
+      create: { phone, passwordHash, firstName, lastName, statusTokenHash },
     });
 
     const result = await issueCodeToAttempt(attempt.id, phone, 'Register');
     if (!result.ok) {
-      return res.status(502).json({
-        message: 'Не удалось отправить код подтверждения в WhatsApp. Попробуйте еще раз.',
+      return res.status(result.error?.statusCode || 502).json({
+        message: 'Не удалось отправить код подтверждения в WhatsApp. Выберите подтверждение через администратора.',
       });
     }
 
     res.status(201).json({
       message: 'Код подтверждения отправлен в WhatsApp.',
+      status: 'PENDING_WHATSAPP',
+      requestToken,
       resendCooldown: result.resendCooldown,
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── VERIFY PHONE ─────────────────────────────────────────────────────────────
-// Validates code from RegistrationAttempt, creates User on success
 export async function verifyPhone(req, res, next) {
   try {
-    const { phone, code } = verifyCodeSchema.parse(req.body);
-
-    const attempt = await prisma.registrationAttempt.findUnique({ where: { phone } });
+    const { phone, requestToken, code } = verifyRegistrationSchema.parse(req.body);
+    const attempt = await findRegistrationAttempt({ phone, requestToken });
     if (!attempt) {
       return res.status(404).json({ message: 'Регистрация не найдена или уже завершена' });
     }
@@ -139,64 +196,112 @@ export async function verifyPhone(req, res, next) {
       return res.status(400).json({ message: 'Срок действия кода истек. Запросите новый.' });
     }
 
-    // Create verified user + delete attempt atomically
     const user = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${attempt.phone}))`;
+      const currentAttempt = await tx.registrationAttempt.findUnique({ where: { id: attempt.id } });
+      if (!currentAttempt) {
+        const error = new Error('Регистрация уже обработана');
+        error.statusCode = 409;
+        throw error;
+      }
+      if (
+        !currentAttempt.verificationCode
+        || currentAttempt.verificationCode !== code
+        || !currentAttempt.verificationCodeExpires
+        || currentAttempt.verificationCodeExpires < new Date()
+      ) {
+        const error = new Error('Код подтверждения изменился или истек. Введите актуальный код.');
+        error.statusCode = 409;
+        throw error;
+      }
+      const existingUser = await tx.user.findUnique({ where: { phone: currentAttempt.phone } });
+      if (existingUser) {
+        const error = new Error('Пользователь с таким номером уже существует');
+        error.statusCode = 409;
+        throw error;
+      }
+
       const created = await tx.user.create({
         data: {
-          firstName: attempt.firstName,
-          lastName: attempt.lastName,
-          phone: attempt.phone,
-          passwordHash: attempt.passwordHash,
+          firstName: currentAttempt.firstName,
+          lastName: currentAttempt.lastName,
+          phone: currentAttempt.phone,
+          passwordHash: currentAttempt.passwordHash,
           isVerified: true,
+          registrationStatusTokenHash: currentAttempt.statusTokenHash,
         },
       });
-      await tx.registrationAttempt.delete({ where: { id: attempt.id } });
+      await tx.registrationAttempt.deleteMany({ where: { phone: currentAttempt.phone } });
+      await tx.adminVerificationRequest.deleteMany({ where: { phone: currentAttempt.phone } });
       return created;
     });
 
     const token = signToken(user);
     const profile = await buildUserProfile(user);
     res.json({ message: 'Аккаунт успешно подтвержден', token, user: profile });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── RESEND CODE ──────────────────────────────────────────────────────────────
-// Works for RegistrationAttempt (new registration flow)
 export async function resendCode(req, res, next) {
   try {
-    const { phone } = resendCodeSchema.parse(req.body);
-
-    const attempt = await prisma.registrationAttempt.findUnique({ where: { phone } });
+    const { phone, requestToken } = resendRegistrationCodeSchema.parse(req.body);
+    const attempt = await findRegistrationAttempt({ phone, requestToken });
     if (!attempt) {
       return res.status(404).json({ message: 'Регистрация не найдена' });
     }
 
     const secondsLeft = checkResendCooldown(attempt.verificationCodeExpires);
     if (secondsLeft) {
-      return res.status(429).json({ message: `Подождите ${secondsLeft} сек. перед повторной отправкой` });
-    }
-
-    const result = await issueCodeToAttempt(attempt.id, phone, 'ResendCode');
-    if (!result.ok) {
-      return res.status(502).json({
-        message: 'Не удалось отправить код в WhatsApp. Попробуйте еще раз.',
+      return res.status(429).json({
+        message: `Подождите ${secondsLeft} сек. перед повторной отправкой`,
       });
     }
 
+    const result = await issueCodeToAttempt(attempt.id, attempt.phone, 'ResendCode');
+    if (!result.ok) {
+      return res.status(result.error?.statusCode || 502).json({
+        message: 'Не удалось отправить код в WhatsApp. Попробуйте еще раз.',
+      });
+    }
     res.json({ message: 'Новый код отправлен в WhatsApp' });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── LOGIN ────────────────────────────────────────────────────────────────────
+export async function getRegistrationStatus(req, res, next) {
+  try {
+    const { requestToken } = registrationStatusSchema.parse(req.body);
+    const statusTokenHash = hashRegistrationStatusToken(requestToken);
+    const [verifiedUser, adminRequest, whatsappAttempt] = await Promise.all([
+      prisma.user.findUnique({
+        where: { registrationStatusTokenHash: statusTokenHash },
+        select: { id: true },
+      }),
+      prisma.adminVerificationRequest.findUnique({
+        where: { statusTokenHash },
+        select: { id: true },
+      }),
+      prisma.registrationAttempt.findUnique({
+        where: { statusTokenHash },
+        select: { id: true },
+      }),
+    ]);
+
+    if (verifiedUser) return res.json({ status: 'VERIFIED' });
+    if (adminRequest || whatsappAttempt) return res.json({ status: 'PENDING' });
+    return res.json({ status: 'NOT_FOUND' });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function login(req, res, next) {
   try {
     const { phone, password } = loginSchema.parse(req.body);
     const rateLimitState = getRateLimitState(req.ip, phone);
-
     if (rateLimitState.blocked) {
       return res.status(429).json({
         message: `Слишком много попыток входа. Повторите через ${rateLimitState.retryAfterSeconds} сек.`,
@@ -204,129 +309,68 @@ export async function login(req, res, next) {
     }
 
     const user = await prisma.user.findUnique({ where: { phone } });
-    if (!user || !user.isActive) {
-      registerFailedAttempt(req.ip, phone);
-      return res.status(401).json({ message: 'Неверный номер телефона или пароль' });
-    }
-
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
+    if (!user || !user.isActive || !await bcrypt.compare(password, user.passwordHash)) {
       registerFailedAttempt(req.ip, phone);
       return res.status(401).json({ message: 'Неверный номер телефона или пароль' });
     }
 
     clearFailedAttempts(req.ip, phone);
-
-    // ── Admin 2FA: always require WhatsApp code ──────────────────────────────
-    if (user.role === 'ADMIN') {
-      const secondsLeft = checkResendCooldown(user.verificationCodeExpires);
-      let resendCooldown = secondsLeft ?? 0;
-      let deliveryFailed = false;
-      let message = '';
-
-      if (secondsLeft) {
-        message = `Код уже отправлен. Повторите через ${secondsLeft} сек.`;
-      } else {
-        const result = await issueCodeToUser(user.id, phone, 'AdminLogin');
-        deliveryFailed = !result.ok;
-        resendCooldown = result.ok ? result.resendCooldown : 0;
-        message = result.ok
-          ? 'Код подтверждения отправлен в WhatsApp.'
-          : 'Не удалось отправить код в WhatsApp. Нажмите "Отправить повторно".';
-      }
-
-      return res.json({
-        requiresAdminMfa: true,
-        phone: user.phone,
-        resendCooldown,
-        deliveryFailed,
-        message,
-      });
-    }
-
-    // ── Regular visitor ─────────────────────────────────────────────────────
     const token = signToken(user);
     const profile = await buildUserProfile(user);
     res.json({ token, user: profile });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── ADMIN MFA VERIFY ─────────────────────────────────────────────────────────
-// Second step of admin login: validate WhatsApp code → return token
-export async function adminMfaVerify(req, res, next) {
-  try {
-    const { phone, code } = verifyCodeSchema.parse(req.body);
-
-    const user = await prisma.user.findUnique({ where: { phone } });
-    if (!user || !user.isActive || user.role !== 'ADMIN') {
-      return res.status(404).json({ message: 'Администратор не найден' });
-    }
-
-    if (!user.verificationCode || user.verificationCode !== code) {
-      return res.status(400).json({ message: 'Неверный код подтверждения' });
-    }
-    if (!user.verificationCodeExpires || user.verificationCodeExpires < new Date()) {
-      return res.status(400).json({ message: 'Срок действия кода истек. Запросите новый.' });
-    }
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { verificationCode: null, verificationCodeExpires: null },
-    });
-
-    const token = signToken(user);
-    const profile = await buildUserProfile(user);
-    res.json({ token, user: profile });
-  } catch (err) {
-    next(err);
-  }
-}
-
-// ─── ADMIN MFA RESEND ─────────────────────────────────────────────────────────
-export async function adminMfaResend(req, res, next) {
-  try {
-    const { phone } = resendCodeSchema.parse(req.body);
-
-    const user = await prisma.user.findUnique({ where: { phone } });
-    if (!user || !user.isActive || user.role !== 'ADMIN') {
-      return res.status(404).json({ message: 'Администратор не найден' });
-    }
-
-    const secondsLeft = checkResendCooldown(user.verificationCodeExpires);
-    if (secondsLeft) {
-      return res.status(429).json({ message: `Подождите ${secondsLeft} сек. перед повторной отправкой` });
-    }
-
-    const result = await issueCodeToUser(user.id, phone, 'AdminMfaResend');
-    if (!result.ok) {
-      return res.status(502).json({ message: 'Не удалось отправить код в WhatsApp.' });
-    }
-
-    res.json({ message: 'Новый код отправлен' });
-  } catch (err) {
-    next(err);
-  }
-}
-
-// ─── GET ME ───────────────────────────────────────────────────────────────────
 export async function getMe(req, res, next) {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
-    const profile = await buildUserProfile(user);
-    res.json(profile);
-  } catch (err) {
-    next(err);
+    res.json(await buildUserProfile(user));
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
+export async function completeTemporaryPassword(req, res, next) {
+  try {
+    const { newPassword } = completeTemporaryPasswordSchema.parse(req.body);
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user || !user.isActive) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+    if (!user.mustChangePassword) {
+      return res.status(409).json({ message: 'Обязательная смена пароля не требуется' });
+    }
+    if (await bcrypt.compare(newPassword, user.passwordHash)) {
+      return res.status(400).json({ message: 'Новый пароль должен отличаться от временного' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        mustChangePassword: false,
+        tokenVersion: { increment: 1 },
+        verificationCode: null,
+        verificationCodeExpires: null,
+      },
+    });
+
+    clearFailedAttempts(req.ip, updated.phone);
+    const token = signToken(updated);
+    const profile = await buildUserProfile(updated);
+    res.json({ message: 'Новый пароль сохранен', token, user: profile });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function forgotPassword(req, res, next) {
   try {
     const { phone } = resendCodeSchema.parse(req.body);
-
     const user = await prisma.user.findUnique({ where: { phone } });
     if (!user || !user.isActive) {
       return res.json({ message: 'Если номер зарегистрирован, код отправлен в WhatsApp.' });
@@ -334,23 +378,23 @@ export async function forgotPassword(req, res, next) {
 
     const secondsLeft = checkResendCooldown(user.verificationCodeExpires);
     if (secondsLeft) {
-      return res.status(429).json({ message: `Подождите ${secondsLeft} сек. перед повторной отправкой` });
+      return res.status(429).json({
+        message: `Подождите ${secondsLeft} сек. перед повторной отправкой`,
+      });
     }
 
     const result = await issueCodeToUser(user.id, phone, 'ForgotPassword');
     if (!result.ok) {
-      return res.status(502).json({
+      return res.status(result.error?.statusCode || 502).json({
         message: 'Не удалось отправить код в WhatsApp. Попробуйте еще раз.',
       });
     }
-
     res.json({ message: 'Если номер зарегистрирован, код отправлен в WhatsApp.' });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── CHANGE PASSWORD (authenticated) ─────────────────────────────────────────
 export async function changePassword(req, res, next) {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -363,24 +407,21 @@ export async function changePassword(req, res, next) {
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
-
-    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!valid) return res.status(400).json({ message: 'Текущий пароль указан неверно' });
+    if (!await bcrypt.compare(currentPassword, user.passwordHash)) {
+      return res.status(400).json({ message: 'Текущий пароль указан неверно' });
+    }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
-
     res.json({ message: 'Пароль успешно изменен' });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
-// ─── RESET PASSWORD ───────────────────────────────────────────────────────────
 export async function resetPassword(req, res, next) {
   try {
     const { phone, code, newPassword } = req.body;
-
     if (!phone || !code || !newPassword) {
       return res.status(400).json({ message: 'Заполните все поля' });
     }
@@ -391,7 +432,6 @@ export async function resetPassword(req, res, next) {
     const normalizedPhone = resendCodeSchema.parse({ phone }).phone;
     const user = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
     if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
-
     if (!user.verificationCode || user.verificationCode !== code) {
       return res.status(400).json({ message: 'Неверный код подтверждения' });
     }
@@ -400,15 +440,20 @@ export async function resetPassword(req, res, next) {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash, verificationCode: null, verificationCodeExpires: null },
+      data: {
+        passwordHash,
+        mustChangePassword: false,
+        tokenVersion: { increment: 1 },
+        verificationCode: null,
+        verificationCodeExpires: null,
+      },
     });
 
     clearFailedAttempts(req.ip, normalizedPhone);
     res.json({ message: 'Пароль успешно изменен. Войдите с новым паролем.' });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }

@@ -15,6 +15,9 @@ const ACTION_LABELS = {
   SUBSCRIPTION_FROZEN: 'Абонемент заморожен',
   SUBSCRIPTION_UNFROZEN: 'Абонемент разморожен',
   SUBSCRIPTION_CANCELLED: 'Абонемент деактивирован',
+  CLIENT_VERIFIED_BY_ADMIN: 'Клиент верифицирован администратором',
+  CLIENT_VERIFICATION_REQUEST_DELETED: 'Удалена заявка на верификацию',
+  CLIENT_PASSWORD_RESET: 'Сброшен пароль клиента',
 };
 
 function renderDetails(log) {
@@ -41,6 +44,10 @@ function renderDetails(log) {
 
   if (log.action === 'USER_CREATED') {
     return `${details.firstName || ''} ${details.lastName || ''}`.trim();
+  }
+
+  if (['CLIENT_VERIFIED_BY_ADMIN', 'CLIENT_VERIFICATION_REQUEST_DELETED', 'CLIENT_PASSWORD_RESET'].includes(log.action)) {
+    return `${details.firstName || ''} ${details.lastName || ''} ${details.phone || ''}`.trim();
   }
 
   if (log.action === 'USER_DEACTIVATED') {

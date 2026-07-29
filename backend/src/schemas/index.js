@@ -10,13 +10,14 @@ const nameSchema = z
 const phoneSchema = z
   .string()
   .transform(normalizePhone)
-  .refine((value) => /^7\d{10}$/.test(value), 'Телефон должен быть в формате +7 (XXX) XXX-XX-XX');
+  .refine((value) => /^7\d{10}$/.test(value), 'Телефон должен быть в формате +7 XXX XXX XX XX');
 
 export const registerSchema = z.object({
   firstName: nameSchema,
   lastName: nameSchema,
   phone: phoneSchema,
   password: z.string().min(6, 'Пароль минимум 6 символов').max(200, 'Пароль максимум 200 символов'),
+  verificationMethod: z.enum(['WHATSAPP', 'ADMIN']).default('WHATSAPP'),
 });
 
 export const loginSchema = z.object({
@@ -29,8 +30,31 @@ export const verifyCodeSchema = z.object({
   code: z.string().length(6, 'Код должен быть 6 цифр'),
 });
 
+export const verifyRegistrationSchema = z.object({
+  phone: phoneSchema.optional(),
+  requestToken: z.string().min(32).max(200).optional(),
+  code: z.string().regex(/^\d{6}$/, 'Код должен содержать 6 цифр'),
+}).refine((value) => value.phone || value.requestToken, {
+  message: 'Укажите данные регистрации',
+});
+
 export const resendCodeSchema = z.object({
   phone: phoneSchema,
+});
+
+export const resendRegistrationCodeSchema = z.object({
+  phone: phoneSchema.optional(),
+  requestToken: z.string().min(32).max(200).optional(),
+}).refine((value) => value.phone || value.requestToken, {
+  message: 'Укажите данные регистрации',
+});
+
+export const registrationStatusSchema = z.object({
+  requestToken: z.string().min(32).max(200),
+});
+
+export const completeTemporaryPasswordSchema = z.object({
+  newPassword: z.string().min(6, 'Пароль минимум 6 символов').max(200, 'Пароль максимум 200 символов'),
 });
 
 export const checkInSchema = z.object({
@@ -132,6 +156,10 @@ export const logsQuerySchema = paginationSchema.extend({
 export const usersQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
   sectionId: z.coerce.number().int().positive().optional(),
+});
+
+export const verificationRequestsQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(200).optional(),
 });
 
 export const createUserSchema = z.object({

@@ -8,21 +8,6 @@ import Input from '../components/ui/Input.jsx';
 import PhoneInput from '../components/ui/PhoneInput.jsx';
 import { isCompletePhone, toApiPhone } from '../utils/phone.js';
 
-const PENDING_VERIFICATION_PHONE_KEY = 'pendingVerificationPhone';
-const PENDING_VERIFICATION_COOLDOWN_KEY = 'pendingVerificationCooldownUntil';
-
-function persistVerificationCooldown(seconds) {
-  if ((seconds ?? 0) > 0) {
-    sessionStorage.setItem(
-      PENDING_VERIFICATION_COOLDOWN_KEY,
-      String(Date.now() + seconds * 1000)
-    );
-    return;
-  }
-
-  sessionStorage.setItem(PENDING_VERIFICATION_COOLDOWN_KEY, '0');
-}
-
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -52,7 +37,7 @@ export default function LoginPage() {
 
   const validate = () => {
     const nextErrors = {};
-    if (!isCompletePhone(form.phone)) nextErrors.phone = 'Введите номер в формате +7 (XXX) XXX-XX-XX';
+    if (!isCompletePhone(form.phone)) nextErrors.phone = 'Введите номер в формате +7 XXX XXX XX XX';
     if (!form.password) nextErrors.password = 'Введите пароль';
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -77,39 +62,13 @@ export default function LoginPage() {
       const { data } = await api.post('/auth/login', payload);
       attemptsRef.current = 0;
 
-      if (data.requiresAdminMfa) {
-        if (data.deliveryFailed) {
-          toast.error(data.message || 'Не удалось отправить код в WhatsApp');
-        } else {
-          toast.success(data.message || 'Код подтверждения отправлен в WhatsApp');
-        }
-        navigate('/admin-mfa', {
-          state: { phone: data.phone, resendCooldown: data.resendCooldown ?? 60 },
-        });
-        return;
-      }
-
-      if (data.requiresVerification && data.user.role !== 'ADMIN') {
-        const resendCooldown = data.resendCooldown ?? 60;
-        sessionStorage.setItem(PENDING_VERIFICATION_PHONE_KEY, data.user.phone || payload.phone);
-        persistVerificationCooldown(resendCooldown);
-        if (data.verificationDeliveryFailed) {
-          toast.error(data.message || 'Не удалось автоматически отправить код в WhatsApp');
-        } else {
-          toast.success(data.message || 'Код подтверждения отправлен в WhatsApp');
-        }
-        navigate('/verify', {
-          state: {
-            phone: data.user.phone || payload.phone,
-            resendCooldown,
-          },
-        });
-        return;
-      }
-
       login(data.token, data.user);
       toast.success(`Добро пожаловать, ${data.user.firstName}!`);
-      navigate(data.user.role === 'ADMIN' ? '/admin' : '/visitor');
+      navigate(
+        data.user.mustChangePassword
+          ? '/change-temporary-password'
+          : data.user.role === 'ADMIN' ? '/admin' : '/visitor'
+      );
     } catch (err) {
       attemptsRef.current += 1;
       toast.error(err.response?.data?.message || 'Неверный номер телефона или пароль');

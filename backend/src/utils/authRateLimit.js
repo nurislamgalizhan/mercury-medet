@@ -46,3 +46,10 @@ export function registerFailedAttempt(ip, phone) {
 export function clearFailedAttempts(ip, phone) {
   attempts.delete(getKey(ip, phone));
 }
+
+export function clearFailedAttemptsForIdentifier(phone) {
+  const suffix = `:${phone || 'unknown'}`;
+  for (const key of attempts.keys()) {
+    if (key.endsWith(suffix)) attempts.delete(key);
+  }
+}

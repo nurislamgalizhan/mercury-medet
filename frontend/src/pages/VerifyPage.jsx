@@ -8,6 +8,7 @@ import { formatPhoneDisplay } from '../utils/phone.js';
 
 const PENDING_VERIFICATION_PHONE_KEY = 'pendingVerificationPhone';
 const PENDING_VERIFICATION_COOLDOWN_KEY = 'pendingVerificationCooldownUntil';
+const PENDING_VERIFICATION_TOKEN_KEY = 'pendingVerificationToken';
 
 function getStoredCooldown() {
   const storedValueRaw = sessionStorage.getItem(PENDING_VERIFICATION_COOLDOWN_KEY);
@@ -40,6 +41,12 @@ export default function VerifyPage() {
     [location.state]
   );
   const locationCooldown = location.state?.resendCooldown;
+  const requestToken = useMemo(
+    () => location.state?.requestToken
+      || sessionStorage.getItem(PENDING_VERIFICATION_TOKEN_KEY)
+      || '',
+    [location.state]
+  );
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,17 +59,17 @@ export default function VerifyPage() {
   });
 
   useEffect(() => {
-    if (!phone) {
+    if (!phone && !requestToken) {
       toast.error('Сначала укажите номер телефона');
       navigate('/login', { replace: true });
       return;
     }
 
-    sessionStorage.setItem(PENDING_VERIFICATION_PHONE_KEY, phone);
+    if (phone) sessionStorage.setItem(PENDING_VERIFICATION_PHONE_KEY, phone);
     if (sessionStorage.getItem(PENDING_VERIFICATION_COOLDOWN_KEY) === null) {
       persistVerificationCooldown(typeof locationCooldown === 'number' ? locationCooldown : 60);
     }
-  }, [locationCooldown, navigate, phone]);
+  }, [locationCooldown, navigate, phone, requestToken]);
 
   useEffect(() => {
     if (timer <= 0) return;
@@ -79,9 +86,13 @@ export default function VerifyPage() {
 
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/verify', { phone, code });
+      const { data } = await api.post('/auth/verify', {
+        ...(requestToken ? { requestToken } : { phone }),
+        code,
+      });
       sessionStorage.removeItem(PENDING_VERIFICATION_PHONE_KEY);
       sessionStorage.removeItem(PENDING_VERIFICATION_COOLDOWN_KEY);
+      sessionStorage.removeItem(PENDING_VERIFICATION_TOKEN_KEY);
       login(data.token, data.user);
       toast.success('Аккаунт подтвержден!');
       navigate(data.user.role === 'ADMIN' ? '/admin' : '/visitor');
@@ -95,7 +106,7 @@ export default function VerifyPage() {
   const handleResend = async () => {
     setResending(true);
     try {
-      await api.post('/auth/resend-code', { phone });
+      await api.post('/auth/resend-code', requestToken ? { requestToken } : { phone });
       toast.success('Новый код отправлен');
       persistVerificationCooldown(60);
       setTimer(60);
