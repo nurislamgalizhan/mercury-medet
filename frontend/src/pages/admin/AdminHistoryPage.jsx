@@ -15,6 +15,7 @@ const ACTION_LABELS = {
   SUBSCRIPTION_FROZEN: 'Абонемент заморожен',
   SUBSCRIPTION_UNFROZEN: 'Абонемент разморожен',
   SUBSCRIPTION_CANCELLED: 'Абонемент деактивирован',
+  SUBSCRIPTION_END_UPDATED: 'Изменен срок абонемента',
   CLIENT_VERIFIED_BY_ADMIN: 'Клиент верифицирован администратором',
   CLIENT_VERIFICATION_REQUEST_DELETED: 'Удалена заявка на верификацию',
   CLIENT_PASSWORD_RESET: 'Сброшен пароль клиента',
@@ -76,6 +77,17 @@ function renderDetails(log) {
 
   if (log.action === 'SUBSCRIPTION_CANCELLED') {
     return `${details.sectionName ? `${details.sectionName} · ` : ''}${details.tariffName || 'Тариф'}; остаток был ${details.previousVisitsBalance ?? 0}`;
+  }
+
+
+  if (log.action === 'SUBSCRIPTION_END_UPDATED') {
+    const previous = details.previousSubscriptionEnd
+      ? new Date(details.previousSubscriptionEnd).toLocaleDateString('ru-RU')
+      : '';
+    const next = details.nextSubscriptionEnd
+      ? new Date(details.nextSubscriptionEnd).toLocaleDateString('ru-RU')
+      : '';
+    return `${details.sectionName ? `${details.sectionName} · ` : ''}${previous} -> ${next}`;
   }
 
   return 'Изменение выполнено';
