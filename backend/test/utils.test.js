@@ -24,6 +24,7 @@ import { buildVerificationMessage } from '../src/services/whatsappService.js';
 import { checkResendCooldown } from '../src/controllers/authController.js';
 import {
   cleanupExpiredRegistrationRequests,
+  collectRegistrationStatusTokenHashes,
   createRegistrationStatusToken,
   generateTemporaryPassword,
   hashRegistrationStatusToken,
@@ -91,6 +92,17 @@ test('registration status tokens and temporary passwords use safe formats', () =
   assert.match(generateTemporaryPassword(), /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
 });
 
+test('registration status receipts preserve every unique token for a phone', () => {
+  assert.deepEqual(
+    collectRegistrationStatusTokenHashes(
+      [{ statusTokenHash: 'first' }, { statusTokenHash: 'second' }],
+      { statusTokenHash: 'first' },
+      null
+    ),
+    ['first', 'second']
+  );
+});
+
 test('registration cleanup removes requests older than 30 days', async () => {
   const now = new Date('2026-07-30T12:00:00.000Z');
   const operations = [];
@@ -107,12 +119,18 @@ test('registration cleanup removes requests older than 30 days', async () => {
         return Promise.resolve({ count: 3 });
       },
     },
+    registrationStatusReceipt: {
+      deleteMany: (payload) => {
+        operations.push(['receipt', payload]);
+        return Promise.resolve({ count: 4 });
+      },
+    },
     $transaction: (queries) => Promise.all(queries),
   };
 
   const result = await cleanupExpiredRegistrationRequests(prismaClient, now);
-  assert.deepEqual(result, { adminRequests: 2, whatsappAttempts: 3 });
-  assert.equal(operations.length, 2);
+  assert.deepEqual(result, { adminRequests: 2, whatsappAttempts: 3, statusReceipts: 4 });
+  assert.equal(operations.length, 3);
   assert.equal(operations[0][1].where.createdAt.lt.toISOString(), '2026-06-30T12:00:00.000Z');
 });
 

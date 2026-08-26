@@ -1,7 +1,10 @@
 import { prisma } from '../db.js';
 import { verificationRequestsQuerySchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
-import { cleanupExpiredRegistrationRequests } from '../utils/registrationSecurity.js';
+import {
+  cleanupExpiredRegistrationRequests,
+  collectRegistrationStatusTokenHashes,
+} from '../utils/registrationSecurity.js';
 
 function requestPublic(request, duplicateCount) {
   return {
@@ -91,8 +94,29 @@ export async function verifyClientRequest(req, res, next) {
       const selected = await tx.adminVerificationRequest.findUnique({ where: { id } });
       if (!selected) return { notFound: true };
 
+      const [requestsForPhone, whatsappAttempt] = await Promise.all([
+        tx.adminVerificationRequest.findMany({
+          where: { phone: selected.phone },
+          select: { statusTokenHash: true },
+        }),
+        tx.registrationAttempt.findUnique({
+          where: { phone: selected.phone },
+          select: { statusTokenHash: true },
+        }),
+      ]);
+      const statusTokenHashes = collectRegistrationStatusTokenHashes(
+        requestsForPhone,
+        whatsappAttempt
+      );
+
       const existingUser = await tx.user.findUnique({ where: { phone: selected.phone } });
       if (existingUser) {
+        if (existingUser.isVerified && statusTokenHashes.length) {
+          await tx.registrationStatusReceipt.createMany({
+            data: statusTokenHashes.map((tokenHash) => ({ tokenHash, userId: existingUser.id })),
+            skipDuplicates: true,
+          });
+        }
         await tx.adminVerificationRequest.deleteMany({ where: { phone: selected.phone } });
         await tx.registrationAttempt.deleteMany({ where: { phone: selected.phone } });
         return { existingUser: true };
@@ -110,9 +134,14 @@ export async function verifyClientRequest(req, res, next) {
         },
       });
 
-      const duplicateCount = await tx.adminVerificationRequest.count({
-        where: { phone: selected.phone },
-      });
+      if (statusTokenHashes.length) {
+        await tx.registrationStatusReceipt.createMany({
+          data: statusTokenHashes.map((tokenHash) => ({ tokenHash, userId: user.id })),
+          skipDuplicates: true,
+        });
+      }
+
+      const duplicateCount = requestsForPhone.length;
       await tx.adminVerificationRequest.deleteMany({ where: { phone: selected.phone } });
       await tx.registrationAttempt.deleteMany({ where: { phone: selected.phone } });
       await createAdminAction(tx, {

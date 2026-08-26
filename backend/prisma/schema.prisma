@@ -60,30 +60,31 @@ enum SaleStatus {
 }
 
 model User {
-  id              Int       @id @default(autoincrement())
-  firstName       String
-  lastName        String
-  phone           String    @unique
-  passwordHash    String
-  role            Role      @default(VISITOR)
-  visitsBalance   Int       @default(0)
-  subscriptionEnd DateTime?
-  isVerified      Boolean   @default(false)
-  isActive        Boolean   @default(true)
-  mustChangePassword Boolean @default(false)
-  tokenVersion    Int       @default(0)
-  registrationStatusTokenHash String? @unique
-  frozenUntil     DateTime?
-  syncMemberId    String?    @unique
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                          Int       @id @default(autoincrement())
+  firstName                   String
+  lastName                    String
+  phone                       String    @unique
+  passwordHash                String
+  role                        Role      @default(VISITOR)
+  visitsBalance               Int       @default(0)
+  subscriptionEnd             DateTime?
+  isVerified                  Boolean   @default(false)
+  isActive                    Boolean   @default(true)
+  mustChangePassword          Boolean   @default(false)
+  tokenVersion                Int       @default(0)
+  registrationStatusTokenHash String?   @unique
+  frozenUntil                 DateTime?
+  syncMemberId                String?   @unique
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
 
-  visitLogs VisitLog[]
-  saleLogs  SaleLog[]
-  subscriptions UserSubscription[]
-  sectionMemberships SectionMembership[]
-  adminActions      AdminActionLog[] @relation("AdminActor")
-  targetAdminActions AdminActionLog[] @relation("AdminTarget")
+  visitLogs                  VisitLog[]
+  saleLogs                   SaleLog[]
+  subscriptions              UserSubscription[]
+  sectionMemberships         SectionMembership[]
+  adminActions               AdminActionLog[]            @relation("AdminActor")
+  targetAdminActions         AdminActionLog[]            @relation("AdminTarget")
+  registrationStatusReceipts RegistrationStatusReceipt[]
 
   verificationCode        String?
   verificationCodeExpires DateTime?
@@ -123,27 +124,27 @@ model Tariff {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  saleLogs SaleLog[]
+  saleLogs      SaleLog[]
   subscriptions UserSubscription[]
-  section  Section @relation(fields: [sectionId], references: [id])
+  section       Section            @relation(fields: [sectionId], references: [id])
 
   @@index([sectionId, isActive])
   @@map("tariffs")
 }
 
 model VisitLog {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  sectionId      Int
+  id                 Int      @id @default(autoincrement())
+  userId             Int
+  sectionId          Int
   userSubscriptionId Int?
-  visitsDeducted Int
-  guestCount     Int      @default(0)
-  syncId         String?   @unique
-  sourceSite     String?
-  createdAt      DateTime @default(now())
+  visitsDeducted     Int
+  guestCount         Int      @default(0)
+  syncId             String?  @unique
+  sourceSite         String?
+  createdAt          DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
-  section Section @relation(fields: [sectionId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  section          Section           @relation(fields: [sectionId], references: [id])
   userSubscription UserSubscription? @relation(fields: [userSubscriptionId], references: [id])
 
   @@index([sectionId, createdAt])
@@ -152,24 +153,24 @@ model VisitLog {
 }
 
 model SaleLog {
-  id            Int            @id @default(autoincrement())
+  id            Int           @id @default(autoincrement())
   userId        Int
   sectionId     Int
   tariffId      Int
   pricePaid     Int
-  paymentMethod PaymentMethod  @default(CASH)
-  cashAmount    Int            @default(0)
-  cardAmount    Int            @default(0)
+  paymentMethod PaymentMethod @default(CASH)
+  cashAmount    Int           @default(0)
+  cardAmount    Int           @default(0)
   cardProvider  CardProvider?
-  status        SaleStatus     @default(ACTIVE)
-  refundAmount  Int            @default(0)
+  status        SaleStatus    @default(ACTIVE)
+  refundAmount  Int           @default(0)
   refundedAt    DateTime?
   editedAt      DateTime?
-  createdAt     DateTime       @default(now())
+  createdAt     DateTime      @default(now())
 
-  user   User    @relation(fields: [userId], references: [id])
-  section Section @relation(fields: [sectionId], references: [id])
-  tariff Tariff   @relation(fields: [tariffId], references: [id])
+  user         User              @relation(fields: [userId], references: [id])
+  section      Section           @relation(fields: [sectionId], references: [id])
+  tariff       Tariff            @relation(fields: [tariffId], references: [id])
   subscription UserSubscription?
 
   @@index([sectionId, createdAt])
@@ -178,29 +179,29 @@ model SaleLog {
 }
 
 model UserSubscription {
-  id              Int                @id @default(autoincrement())
-  userId          Int
-  sectionId       Int
-  tariffId        Int
-  saleLogId       Int?               @unique
-  visitsBalance   Int                @default(0)
-  subscriptionEnd DateTime
-  frozenUntil     DateTime?
-  freezeStartedAt DateTime?
-  freezeDaysUsed  Int                @default(0)
-  freezeDaysReserved Int             @default(0)
-  freezeUntilManual Boolean          @default(false)
-  status          SubscriptionStatus @default(ACTIVE)
-  syncId          String?             @unique
-  originSite      String?
-  projectionVersion Int               @default(0)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id                 Int                @id @default(autoincrement())
+  userId             Int
+  sectionId          Int
+  tariffId           Int
+  saleLogId          Int?               @unique
+  visitsBalance      Int                @default(0)
+  subscriptionEnd    DateTime
+  frozenUntil        DateTime?
+  freezeStartedAt    DateTime?
+  freezeDaysUsed     Int                @default(0)
+  freezeDaysReserved Int                @default(0)
+  freezeUntilManual  Boolean            @default(false)
+  status             SubscriptionStatus @default(ACTIVE)
+  syncId             String?            @unique
+  originSite         String?
+  projectionVersion  Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-  user      User      @relation(fields: [userId], references: [id])
-  section   Section   @relation(fields: [sectionId], references: [id])
-  tariff    Tariff    @relation(fields: [tariffId], references: [id])
-  saleLog   SaleLog?  @relation(fields: [saleLogId], references: [id])
+  user      User       @relation(fields: [userId], references: [id])
+  section   Section    @relation(fields: [sectionId], references: [id])
+  tariff    Tariff     @relation(fields: [tariffId], references: [id])
+  saleLog   SaleLog?   @relation(fields: [saleLogId], references: [id])
   visitLogs VisitLog[]
 
   @@index([userId, status])
@@ -217,7 +218,7 @@ model RegistrationAttempt {
   lastName                String
   verificationCode        String?
   verificationCodeExpires DateTime?
-  statusTokenHash         String?    @unique
+  statusTokenHash         String?   @unique
   createdAt               DateTime  @default(now())
 
   @@map("registration_attempts")
@@ -237,16 +238,29 @@ model AdminVerificationRequest {
   @@map("admin_verification_requests")
 }
 
+model RegistrationStatusReceipt {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("registration_status_receipts")
+}
+
 model AdminActionLog {
-  id           Int             @id @default(autoincrement())
-  adminId      Int?
-  targetUserId Int?
-  action       AdminActionType
-  details      Json?
-  syncId       String?         @unique
-  sourceSite   String?
+  id               Int             @id @default(autoincrement())
+  adminId          Int?
+  targetUserId     Int?
+  action           AdminActionType
+  details          Json?
+  syncId           String?         @unique
+  sourceSite       String?
   sourceActorLabel String?
-  createdAt    DateTime        @default(now())
+  createdAt        DateTime        @default(now())
 
   admin      User? @relation("AdminActor", fields: [adminId], references: [id])
   targetUser User? @relation("AdminTarget", fields: [targetUserId], references: [id])
@@ -257,11 +271,11 @@ model AdminActionLog {
 }
 
 model SectionMembership {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  sectionId Int
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  sectionId  Int
   sourceSite String?
-  createdAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   user    User    @relation(fields: [userId], references: [id])
   section Section @relation(fields: [sectionId], references: [id])

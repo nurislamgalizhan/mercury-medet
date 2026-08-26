@@ -23,6 +23,7 @@ import {
 import { buildUserProfile } from '../utils/userProfile.js';
 import {
   cleanupExpiredRegistrationRequests,
+  collectRegistrationStatusTokenHashes,
   createRegistrationStatusToken,
   hashRegistrationStatusToken,
 } from '../utils/registrationSecurity.js';
@@ -221,6 +222,15 @@ export async function verifyPhone(req, res, next) {
         throw error;
       }
 
+      const competingAdminRequests = await tx.adminVerificationRequest.findMany({
+        where: { phone: currentAttempt.phone },
+        select: { statusTokenHash: true },
+      });
+      const statusTokenHashes = collectRegistrationStatusTokenHashes(
+        currentAttempt,
+        competingAdminRequests
+      );
+
       const created = await tx.user.create({
         data: {
           firstName: currentAttempt.firstName,
@@ -231,6 +241,12 @@ export async function verifyPhone(req, res, next) {
           registrationStatusTokenHash: currentAttempt.statusTokenHash,
         },
       });
+      if (statusTokenHashes.length) {
+        await tx.registrationStatusReceipt.createMany({
+          data: statusTokenHashes.map((tokenHash) => ({ tokenHash, userId: created.id })),
+          skipDuplicates: true,
+        });
+      }
       await tx.registrationAttempt.deleteMany({ where: { phone: currentAttempt.phone } });
       await tx.adminVerificationRequest.deleteMany({ where: { phone: currentAttempt.phone } });
       return created;
@@ -275,9 +291,13 @@ export async function getRegistrationStatus(req, res, next) {
   try {
     const { requestToken } = registrationStatusSchema.parse(req.body);
     const statusTokenHash = hashRegistrationStatusToken(requestToken);
-    const [verifiedUser, adminRequest, whatsappAttempt] = await Promise.all([
+    const [verifiedUser, statusReceipt, adminRequest, whatsappAttempt] = await Promise.all([
       prisma.user.findUnique({
         where: { registrationStatusTokenHash: statusTokenHash },
+        select: { id: true },
+      }),
+      prisma.registrationStatusReceipt.findUnique({
+        where: { tokenHash: statusTokenHash },
         select: { id: true },
       }),
       prisma.adminVerificationRequest.findUnique({
@@ -290,7 +310,7 @@ export async function getRegistrationStatus(req, res, next) {
       }),
     ]);
 
-    if (verifiedUser) return res.json({ status: 'VERIFIED' });
+    if (verifiedUser || statusReceipt) return res.json({ status: 'VERIFIED' });
     if (adminRequest || whatsappAttempt) return res.json({ status: 'PENDING' });
     return res.json({ status: 'NOT_FOUND' });
   } catch (error) {

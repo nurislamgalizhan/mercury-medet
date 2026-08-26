@@ -29,6 +29,8 @@ export default function VerificationPendingPage() {
         }
         if (data.status === 'PENDING') {
           timer = setTimeout(checkStatus, 10_000);
+        } else if (data.status === 'NOT_FOUND') {
+          sessionStorage.removeItem(TOKEN_KEY);
         }
       } catch {
         if (active) timer = setTimeout(checkStatus, 10_000);
@@ -60,8 +62,17 @@ export default function VerificationPendingPage() {
           ) : status === 'NOT_FOUND' ? (
             <>
               <h1 className="text-xl font-bold text-slate-900">Заявка не найдена</h1>
-              <p className="text-sm text-slate-500 mt-2">Она могла быть удалена или просрочена.</p>
-              <Link to="/register" className="inline-block mt-5 text-sm font-medium text-brand-600 hover:underline">
+              <p className="text-sm text-slate-500 mt-2">
+                Она могла быть уже подтверждена, удалена или просрочена. Если администратор
+                подтвердил регистрацию, войдите с указанным номером и паролем.
+              </p>
+              <Link
+                to="/login"
+                className="inline-flex mt-5 px-4 py-2 rounded-lg bg-brand-600 text-sm font-medium text-white hover:bg-brand-700"
+              >
+                Перейти ко входу
+              </Link>
+              <Link to="/register" className="block mt-4 text-sm font-medium text-brand-600 hover:underline">
                 Создать новую заявку
               </Link>
             </>

@@ -12,6 +12,11 @@ export function hashRegistrationStatusToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
+export function collectRegistrationStatusTokenHashes(...recordGroups) {
+  const records = recordGroups.flat();
+  return [...new Set(records.map((record) => record?.statusTokenHash).filter(Boolean))];
+}
+
 export function generateTemporaryPassword() {
   const characters = Array.from({ length: 12 }, () => (
     TEMPORARY_PASSWORD_ALPHABET[crypto.randomInt(TEMPORARY_PASSWORD_ALPHABET.length)]
@@ -25,11 +30,14 @@ export function generateTemporaryPassword() {
 
 export async function cleanupExpiredRegistrationRequests(prismaClient, now = new Date()) {
   const cutoff = new Date(now.getTime() - REQUEST_RETENTION_MS);
-  const [adminRequests, whatsappAttempts] = await prismaClient.$transaction([
+  const [adminRequests, whatsappAttempts, statusReceipts] = await prismaClient.$transaction([
     prismaClient.adminVerificationRequest.deleteMany({
       where: { createdAt: { lt: cutoff } },
     }),
     prismaClient.registrationAttempt.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    }),
+    prismaClient.registrationStatusReceipt.deleteMany({
       where: { createdAt: { lt: cutoff } },
     }),
   ]);
@@ -37,6 +45,7 @@ export async function cleanupExpiredRegistrationRequests(prismaClient, now = new
   return {
     adminRequests: adminRequests.count,
     whatsappAttempts: whatsappAttempts.count,
+    statusReceipts: statusReceipts.count,
   };
 }
 
