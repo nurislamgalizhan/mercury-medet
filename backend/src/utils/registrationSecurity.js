@@ -30,7 +30,7 @@ export function generateTemporaryPassword() {
 
 export async function cleanupExpiredRegistrationRequests(prismaClient, now = new Date()) {
   const cutoff = new Date(now.getTime() - REQUEST_RETENTION_MS);
-  const [adminRequests, whatsappAttempts, statusReceipts] = await prismaClient.$transaction([
+  const [adminRequests, whatsappAttempts, statusReceipts, passwordResetRequests] = await prismaClient.$transaction([
     prismaClient.adminVerificationRequest.deleteMany({
       where: { createdAt: { lt: cutoff } },
     }),
@@ -40,12 +40,16 @@ export async function cleanupExpiredRegistrationRequests(prismaClient, now = new
     prismaClient.registrationStatusReceipt.deleteMany({
       where: { createdAt: { lt: cutoff } },
     }),
+    prismaClient.adminPasswordResetRequest.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    }),
   ]);
 
   return {
     adminRequests: adminRequests.count,
     whatsappAttempts: whatsappAttempts.count,
     statusReceipts: statusReceipts.count,
+    passwordResetRequests: passwordResetRequests.count,
   };
 }
 

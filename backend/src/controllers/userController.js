@@ -2,8 +2,8 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
 import { usersQuerySchema, adjustUserSchema, createUserSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
-import { generateTemporaryPassword } from '../utils/registrationSecurity.js';
 import { clearFailedAttemptsForIdentifier } from '../utils/authRateLimit.js';
+import { resetVisitorPassword } from '../utils/clientPasswordReset.js';
 import { clearExpiredVisits, clearExpiredVisitsForUsers } from '../utils/subscription.js';
 import {
   clearedFreezeData,
@@ -246,30 +246,9 @@ export async function resetClientPassword(req, res, next) {
       return res.status(403).json({ message: 'Здесь можно сбросить пароль только клиента' });
     }
 
-    const temporaryPassword = generateTemporaryPassword();
-    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id },
-        data: {
-          passwordHash,
-          mustChangePassword: true,
-          tokenVersion: { increment: 1 },
-          verificationCode: null,
-          verificationCodeExpires: null,
-        },
-      });
-      await createAdminAction(tx, {
-        adminId: req.userId,
-        targetUserId: id,
-        action: 'CLIENT_PASSWORD_RESET',
-        details: {
-          firstName: user.firstName,
-          lastName: user.lastName,
-          phone: user.phone,
-        },
-      });
-    });
+    const temporaryPassword = await prisma.$transaction((tx) => (
+      resetVisitorPassword(tx, { user, adminId: req.userId })
+    ));
     clearFailedAttemptsForIdentifier(user.phone);
 
     res.json({

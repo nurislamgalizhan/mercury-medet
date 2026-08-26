@@ -3,8 +3,8 @@ import { useAuth } from './context/AuthContext.jsx';
 
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
-import VerifyPage from './pages/VerifyPage.jsx';
 import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx';
+import AdminMfaPage from './pages/AdminMfaPage.jsx';
 import VerificationPendingPage from './pages/VerificationPendingPage.jsx';
 import TemporaryPasswordPage from './pages/TemporaryPasswordPage.jsx';
 
@@ -56,7 +56,7 @@ export default function App() {
       <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/verify" element={<VerifyPage />} />
+      <Route path="/admin-mfa" element={<AdminMfaPage />} />
       <Route path="/verification-pending" element={<VerificationPendingPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route

@@ -11,6 +11,7 @@ export async function applySharedSubscriptionState(tx, localSubscription, shared
       freezeStartedAt: sharedState.freezeStartedAt ? new Date(sharedState.freezeStartedAt) : null,
       freezeDaysUsed: sharedState.freezeDaysUsed,
       freezeDaysReserved: sharedState.freezeDaysReserved,
+      freezeDaysTotal: sharedState.freezeDaysTotal ?? 15,
       freezeUntilManual: sharedState.freezeUntilManual,
       status: sharedState.status,
       projectionVersion: sharedState.version,

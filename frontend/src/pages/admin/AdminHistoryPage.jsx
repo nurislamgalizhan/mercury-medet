@@ -19,6 +19,7 @@ const ACTION_LABELS = {
   CLIENT_VERIFIED_BY_ADMIN: 'Клиент верифицирован администратором',
   CLIENT_VERIFICATION_REQUEST_DELETED: 'Удалена заявка на верификацию',
   CLIENT_PASSWORD_RESET: 'Сброшен пароль клиента',
+  CLIENT_PASSWORD_RESET_REQUEST_DELETED: 'Удалена заявка на сброс пароля',
 };
 
 function renderDetails(log) {
@@ -47,7 +48,7 @@ function renderDetails(log) {
     return `${details.firstName || ''} ${details.lastName || ''}`.trim();
   }
 
-  if (['CLIENT_VERIFIED_BY_ADMIN', 'CLIENT_VERIFICATION_REQUEST_DELETED', 'CLIENT_PASSWORD_RESET'].includes(log.action)) {
+  if (['CLIENT_VERIFIED_BY_ADMIN', 'CLIENT_VERIFICATION_REQUEST_DELETED', 'CLIENT_PASSWORD_RESET', 'CLIENT_PASSWORD_RESET_REQUEST_DELETED'].includes(log.action)) {
     return `${details.firstName || ''} ${details.lastName || ''} ${details.phone || ''}`.trim();
   }
 

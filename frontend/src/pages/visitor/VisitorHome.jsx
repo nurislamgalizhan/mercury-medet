@@ -34,7 +34,8 @@ export default function VisitorHome() {
   const totalVisitsToDeduct = useMemo(() => 1 + guestCount, [guestCount]);
   const maxGuests = Math.max(0, (selectedSubscription?.visitsBalance ?? 1) - 1);
   const canCheckIn = !isFrozen && (isUnlimited ? subscriptionActive : Boolean(selectedSubscription?.visitsBalance > 0 && subscriptionActive));
-  const freezeDaysRemaining = selectedSubscription?.freezeDaysRemaining ?? 15;
+  const freezeDaysTotal = selectedSubscription?.freezeDaysTotal ?? 15;
+  const freezeDaysRemaining = selectedSubscription?.freezeDaysRemaining ?? freezeDaysTotal;
   const canFreeze = Boolean(
     selectedSubscription
       && subscriptionActive
@@ -269,7 +270,7 @@ export default function VisitorHome() {
             <div>
               <h2 className="font-semibold text-slate-900">Заморозка</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Доступно {freezeDaysRemaining} из 15 дней
+                Доступно {freezeDaysRemaining} из {freezeDaysTotal} дней
               </p>
               {isFrozen && (
                 <p className="mt-1 text-sm text-blue-700">

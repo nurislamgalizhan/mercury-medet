@@ -17,7 +17,6 @@ export const registerSchema = z.object({
   lastName: nameSchema,
   phone: phoneSchema,
   password: z.string().min(6, 'Пароль минимум 6 символов').max(200, 'Пароль максимум 200 символов'),
-  verificationMethod: z.enum(['WHATSAPP', 'ADMIN']).default('WHATSAPP'),
 });
 
 export const loginSchema = z.object({
@@ -30,23 +29,8 @@ export const verifyCodeSchema = z.object({
   code: z.string().length(6, 'Код должен быть 6 цифр'),
 });
 
-export const verifyRegistrationSchema = z.object({
-  phone: phoneSchema.optional(),
-  requestToken: z.string().min(32).max(200).optional(),
-  code: z.string().regex(/^\d{6}$/, 'Код должен содержать 6 цифр'),
-}).refine((value) => value.phone || value.requestToken, {
-  message: 'Укажите данные регистрации',
-});
-
 export const resendCodeSchema = z.object({
   phone: phoneSchema,
-});
-
-export const resendRegistrationCodeSchema = z.object({
-  phone: phoneSchema.optional(),
-  requestToken: z.string().min(32).max(200).optional(),
-}).refine((value) => value.phone || value.requestToken, {
-  message: 'Укажите данные регистрации',
 });
 
 export const registrationStatusSchema = z.object({
@@ -179,7 +163,7 @@ export const adminCheckInSchema = z.object({
 export const freezeSchema = z.object({
   userSubscriptionId: z.number().int().positive().optional(),
   mode: z.enum(['FIXED', 'UNTIL_MANUAL']).optional(),
-  days: z.number().int().min(1).max(15).optional(),
+  days: z.number().int().min(1).max(365).optional(),
   // Kept temporarily so an already-open browser tab can use the new backend.
   freezeFrom: z.string().datetime({ offset: true }).optional(),
   freezeTo: z.string().datetime({ offset: true }).optional(),
@@ -191,8 +175,8 @@ export const freezeSchema = z.object({
     return;
   }
   const legacyDays = Math.ceil((new Date(val.freezeTo) - new Date(val.freezeFrom)) / (24 * 60 * 60 * 1000));
-  if (legacyDays < 1 || legacyDays > 15) {
-    ctx.addIssue({ code: 'custom', message: 'Период заморозки должен быть от 1 до 15 дней', path: ['freezeTo'] });
+  if (legacyDays < 1 || legacyDays > 365) {
+    ctx.addIssue({ code: 'custom', message: 'Период заморозки должен быть от 1 до 365 дней', path: ['freezeTo'] });
   }
 }).transform((val) => ({
   userSubscriptionId: val.userSubscriptionId,
@@ -215,6 +199,7 @@ export const activateSubscriptionSchema = z.object({
 export const sectionSchema = z.object({
   name: z.string().min(1, 'Название обязательно').max(100, 'Максимум 100 символов'),
   isActive: z.boolean().optional(),
+  freezeDaysAllowed: z.number().int().min(0).max(365).optional(),
 });
 
 export const updateSectionSchema = sectionSchema.partial().refine(

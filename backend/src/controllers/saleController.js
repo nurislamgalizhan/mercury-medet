@@ -119,6 +119,7 @@ export async function sellTariff(req, res, next) {
           saleLogId: sale.id,
           visitsBalance,
           subscriptionEnd,
+          freezeDaysTotal: tariff.section.freezeDaysAllowed,
           status: 'ACTIVE',
           ...(shared && {
             syncId: shared.syncId,
@@ -300,6 +301,7 @@ export async function updateSale(req, res, next) {
             sectionId: nextTariff.sectionId,
             visitsBalance: nextTariff.visitsAmount ?? 0,
             subscriptionEnd: nextSubscriptionEnd,
+            freezeDaysTotal: nextTariff.section.freezeDaysAllowed,
             status: nextSubscriptionEnd && nextSubscriptionEnd <= new Date() ? 'EXPIRED' : 'ACTIVE',
           },
         });

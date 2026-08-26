@@ -25,6 +25,7 @@ export async function createSection(req, res, next) {
       data: {
         name: data.name.trim(),
         isActive: data.isActive ?? true,
+        freezeDaysAllowed: data.freezeDaysAllowed ?? 15,
         sortOrder: (maxSection?.sortOrder ?? -1) + 1,
       },
     });
@@ -43,6 +44,7 @@ export async function updateSection(req, res, next) {
       data: {
         ...(data.name !== undefined && { name: data.name.trim() }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.freezeDaysAllowed !== undefined && { freezeDaysAllowed: data.freezeDaysAllowed }),
       },
     });
     res.json(section);

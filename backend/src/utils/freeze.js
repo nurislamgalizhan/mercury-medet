@@ -1,24 +1,33 @@
-export const MAX_FREEZE_DAYS = 15;
+export const DEFAULT_FREEZE_DAYS = 15;
+export const MAX_CONFIGURABLE_FREEZE_DAYS = 365;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-function clampDays(value) {
+function freezeDaysTotal(subscription) {
+  const value = Number(subscription?.freezeDaysTotal ?? DEFAULT_FREEZE_DAYS);
+  if (!Number.isFinite(value)) return DEFAULT_FREEZE_DAYS;
+  return Math.max(0, Math.min(MAX_CONFIGURABLE_FREEZE_DAYS, Math.trunc(value)));
+}
+
+function clampDays(value, total) {
   const days = Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0;
-  return Math.max(0, Math.min(MAX_FREEZE_DAYS, days));
+  return Math.max(0, Math.min(total, days));
 }
 
 export function getFreezeDaysRemaining(subscription) {
-  const used = clampDays(subscription?.freezeDaysUsed);
-  const reserved = clampDays(subscription?.freezeDaysReserved);
-  return Math.max(0, MAX_FREEZE_DAYS - used - reserved);
+  const total = freezeDaysTotal(subscription);
+  const used = clampDays(subscription?.freezeDaysUsed, total);
+  const reserved = clampDays(subscription?.freezeDaysReserved, total);
+  return Math.max(0, total - used - reserved);
 }
 
 export function freezePublicState(subscription) {
+  const total = freezeDaysTotal(subscription);
   return {
     freezeStartedAt: subscription?.freezeStartedAt || null,
-    freezeDaysUsed: clampDays(subscription?.freezeDaysUsed),
-    freezeDaysReserved: clampDays(subscription?.freezeDaysReserved),
+    freezeDaysUsed: clampDays(subscription?.freezeDaysUsed, total),
+    freezeDaysReserved: clampDays(subscription?.freezeDaysReserved, total),
     freezeDaysRemaining: getFreezeDaysRemaining(subscription),
-    freezeDaysTotal: MAX_FREEZE_DAYS,
+    freezeDaysTotal: total,
     freezeUntilManual: Boolean(subscription?.freezeUntilManual),
   };
 }
@@ -46,8 +55,9 @@ export function createFreezePlan(subscription, { mode, days }, now = new Date())
 }
 
 export function completeFreezePlan(subscription, now = new Date()) {
-  const usedDays = clampDays(subscription?.freezeDaysUsed);
-  const reservedDays = clampDays(subscription?.freezeDaysReserved);
+  const total = freezeDaysTotal(subscription);
+  const usedDays = clampDays(subscription?.freezeDaysUsed, total);
+  const reservedDays = clampDays(subscription?.freezeDaysReserved, total);
   const startedAt = subscription?.freezeStartedAt ? new Date(subscription.freezeStartedAt) : null;
   const frozenUntil = subscription?.frozenUntil ? new Date(subscription.frozenUntil) : null;
 
@@ -68,7 +78,7 @@ export function completeFreezePlan(subscription, now = new Date()) {
 
   return {
     subscriptionEnd: new Date(subscription.subscriptionEnd.getTime() - restoredDays * DAY_MS),
-    freezeDaysUsed: Math.min(MAX_FREEZE_DAYS, usedDays + consumedDays),
+    freezeDaysUsed: Math.min(total, usedDays + consumedDays),
     consumedDays,
     restoredDays,
   };

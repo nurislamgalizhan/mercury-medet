@@ -17,7 +17,7 @@ export default function TariffsAdminPage() {
   const [editing, setEditing] = useState(null);
   const [editingSection, setEditingSection] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [sectionForm, setSectionForm] = useState({ name: '' });
+  const [sectionForm, setSectionForm] = useState({ name: '', freezeDaysAllowed: '15' });
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState('active');
   const [selectedSectionId, setSelectedSectionId] = useState('all');
@@ -59,13 +59,16 @@ export default function TariffsAdminPage() {
 
   const openSectionCreate = () => {
     setEditingSection(null);
-    setSectionForm({ name: '' });
+    setSectionForm({ name: '', freezeDaysAllowed: '15' });
     setSectionModalOpen(true);
   };
 
   const openSectionEdit = (section) => {
     setEditingSection(section);
-    setSectionForm({ name: section.name });
+    setSectionForm({
+      name: section.name,
+      freezeDaysAllowed: String(section.freezeDaysAllowed ?? 15),
+    });
     setSectionModalOpen(true);
   };
 
@@ -103,7 +106,10 @@ export default function TariffsAdminPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { name: sectionForm.name };
+      const payload = {
+        name: sectionForm.name,
+        freezeDaysAllowed: parseInt(sectionForm.freezeDaysAllowed, 10),
+      };
       if (editingSection) {
         await updateSection(editingSection.id, payload);
         toast.success('Секция обновлена');
@@ -226,7 +232,7 @@ export default function TariffsAdminPage() {
               <div>
                 <p className="font-medium text-slate-800">{section.name}</p>
                 <p className={`text-xs mt-0.5 ${section.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  {section.isActive ? 'Активна' : 'Выключена'}
+                  {section.isActive ? 'Активна' : 'Выключена'} · заморозка до {section.freezeDaysAllowed ?? 15} дн.
                 </p>
               </div>
               <div className="flex gap-2">
@@ -281,6 +287,15 @@ export default function TariffsAdminPage() {
       <Modal isOpen={sectionModalOpen} onClose={() => setSectionModalOpen(false)} title={editingSection ? 'Редактировать секцию' : 'Новая секция'}>
         <form onSubmit={handleSectionSave} className="space-y-4">
           <Input label="Название" placeholder="Волейбол" value={sectionForm.name} onChange={(e) => setSectionForm({ ...sectionForm, name: e.target.value })} required />
+          <Input
+            label="Дней заморозки для новых абонементов"
+            type="number"
+            min="0"
+            max="365"
+            value={sectionForm.freezeDaysAllowed}
+            onChange={(e) => setSectionForm({ ...sectionForm, freezeDaysAllowed: e.target.value })}
+            required
+          />
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" type="button" onClick={() => setSectionModalOpen(false)} className="flex-1">Отмена</Button>
             <Button type="submit" loading={saving} className="flex-1">Сохранить</Button>

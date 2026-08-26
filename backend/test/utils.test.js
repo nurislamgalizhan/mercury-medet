@@ -30,12 +30,12 @@ import {
   hashRegistrationStatusToken,
 } from '../src/utils/registrationSecurity.js';
 
-test('verification message starts with a sanitized client name and keeps the code visible', () => {
+test('administrator verification message starts with a sanitized name and keeps the code visible', () => {
   const message = buildVerificationMessage('  Алия\n_*  ', '123456');
 
   assert.equal(message.startsWith('Здравствуйте, Алия!'), true);
-  assert.match(message, /Код подтверждения: \*123456\*/);
-  assert.match(message, /Если вы не запрашивали код/);
+  assert.match(message, /Код входа администратора Меркурий Медет: \*123456\*/);
+  assert.match(message, /Если вы не входили в административную панель/);
   assert.equal(message.includes('\n_*'), false);
 });
 
@@ -125,12 +125,23 @@ test('registration cleanup removes requests older than 30 days', async () => {
         return Promise.resolve({ count: 4 });
       },
     },
+    adminPasswordResetRequest: {
+      deleteMany: (payload) => {
+        operations.push(['password-reset', payload]);
+        return Promise.resolve({ count: 5 });
+      },
+    },
     $transaction: (queries) => Promise.all(queries),
   };
 
   const result = await cleanupExpiredRegistrationRequests(prismaClient, now);
-  assert.deepEqual(result, { adminRequests: 2, whatsappAttempts: 3, statusReceipts: 4 });
-  assert.equal(operations.length, 3);
+  assert.deepEqual(result, {
+    adminRequests: 2,
+    whatsappAttempts: 3,
+    statusReceipts: 4,
+    passwordResetRequests: 5,
+  });
+  assert.equal(operations.length, 4);
   assert.equal(operations[0][1].where.createdAt.lt.toISOString(), '2026-06-30T12:00:00.000Z');
 });
 
@@ -208,6 +219,20 @@ test('until-manual mode auto-finishes when all remaining freeze days are used', 
   const completed = completeFreezePlan(frozen, frozen.frozenUntil);
   assert.equal(completed.freezeDaysUsed, 15);
   assert.equal(completed.restoredDays, 0);
+});
+
+test('freeze limit is taken from the subscription snapshot', () => {
+  const startedAt = new Date('2026-07-25T06:00:00.000Z');
+  const frozen = createFreezePlan({
+    subscriptionEnd: new Date('2026-08-10T12:00:00.000Z'),
+    freezeDaysTotal: 30,
+    freezeDaysUsed: 5,
+    freezeDaysReserved: 0,
+  }, { mode: 'UNTIL_MANUAL' }, startedAt);
+
+  assert.equal(frozen.freezeDaysReserved, 25);
+  assert.equal(freezePublicState(frozen).freezeDaysTotal, 30);
+  assert.equal(freezePublicState(frozen).freezeDaysRemaining, 0);
 });
 
 test('legacy freeze completion never shifts an already-credited end date', () => {

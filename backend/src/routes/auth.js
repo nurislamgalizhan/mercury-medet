@@ -2,12 +2,11 @@ import { Router } from 'express';
 import { authenticate, authenticateForPasswordChange } from '../middleware/auth.js';
 import {
   register,
-  verifyPhone,
-  resendCode,
   login,
+  adminMfaVerify,
+  adminMfaResend,
   getMe,
   forgotPassword,
-  resetPassword,
   changePassword,
   getRegistrationStatus,
   completeTemporaryPassword,
@@ -16,10 +15,10 @@ import {
 const router = Router();
 
 router.post('/register', register);
-router.post('/verify', verifyPhone);
-router.post('/resend-code', resendCode);
 router.post('/registration-status', getRegistrationStatus);
 router.post('/login', login);
+router.post('/admin-mfa/verify', adminMfaVerify);
+router.post('/admin-mfa/resend', adminMfaResend);
 
 router.get('/me', authenticateForPasswordChange, getMe);
 router.patch('/me/password', authenticate, changePassword);
@@ -29,6 +28,5 @@ router.post(
   completeTemporaryPassword
 );
 router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
 
 export default router;

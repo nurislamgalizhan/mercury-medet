@@ -36,16 +36,19 @@ npm run dev           # http://localhost:5173
 ## Стек
 - **Backend:** Node.js + Express + Prisma (PostgreSQL) + Socket.io + Zod
 - **Frontend:** React (Vite) + Tailwind CSS + React Router + Axios
-- **Auth:** JWT + WhatsApp верификация (Green API)
+- **Auth:** JWT, регистрация клиентов через администратора, WhatsApp MFA только для администратора
 
 ## API Endpoints
 
 | Method | Path | Auth | Описание |
 |--------|------|------|----------|
-| POST | /api/auth/register | — | Регистрация |
-| POST | /api/auth/verify | — | Верификация кода |
-| POST | /api/auth/resend-code | — | Повтор кода |
+| POST | /api/auth/register | — | Заявка на регистрацию через администратора |
+| POST | /api/auth/registration-status | — | Статус заявки на регистрацию |
 | POST | /api/auth/login | — | Вход |
+| POST | /api/auth/admin-mfa/verify | — | Подтверждение MFA администратора |
+| POST | /api/auth/admin-mfa/resend | — | Повтор MFA-кода администратора |
+| POST | /api/auth/forgot-password | — | Заявка администратору на сброс пароля |
+| POST | /api/auth/complete-temporary-password | JWT | Замена временного пароля |
 | GET | /api/auth/me | JWT | Текущий пользователь |
 | GET | /api/users | Admin | Список клиентов |
 | GET | /api/users/:id | Admin | Карточка клиента |
@@ -60,3 +63,4 @@ npm run dev           # http://localhost:5173
 | GET | /api/visits | Admin | Лог посещений |
 | POST | /api/sales | Admin | Продать абонемент |
 | GET | /api/sales | Admin | Лог продаж |
+| GET | /api/verification-requests | Admin | Регистрации и запросы сброса пароля |

@@ -53,7 +53,7 @@ export default function SellTariffModal({ isOpen, onClose, user, onSuccess }) {
   const selectedSection = sections.find((s) => s.id === Number(selectedSectionId));
   const sectionBlocked = selectedSectionId && activeSectionIds.has(Number(selectedSectionId));
   const blockReason = !user?.isVerified
-    ? 'Клиент не прошел верификацию WhatsApp'
+    ? 'Клиент не прошел верификацию'
     : sectionBlocked
       ? `У клиента уже есть активный абонемент в секции «${selectedSection?.name || 'секция'}»`
       : null;

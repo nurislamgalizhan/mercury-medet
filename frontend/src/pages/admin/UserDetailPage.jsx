@@ -305,7 +305,7 @@ export default function UserDetailPage() {
               </div>
               {isActive && subscription.tariff?.visitsAmount !== 1 && (
                 <p className="mt-3 text-xs text-slate-500">
-                  Заморозка: доступно {subscription.freezeDaysRemaining ?? 15} из 15 дней
+                  Заморозка: доступно {subscription.freezeDaysRemaining ?? subscription.freezeDaysTotal ?? 15} из {subscription.freezeDaysTotal ?? 15} дней
                 </p>
               )}
               {isFrozen && <p className="mt-3 text-sm text-blue-700 bg-blue-50 rounded-xl px-3 py-2">Заморожен до {format(new Date(subscription.frozenUntil), 'dd.MM.yyyy')}</p>}
@@ -313,7 +313,7 @@ export default function UserDetailPage() {
                 <div className="flex flex-wrap gap-2 mt-4">
                   <Button size="sm" variant="secondary" onClick={() => openCheckin(subscription)}>Списать</Button>
                   {!isUnlimited && <Button size="sm" variant="secondary" onClick={() => openAdjust(subscription)}>Корректировка</Button>}
-                  {!isFrozen && subscription.tariff?.visitsAmount !== 1 && (subscription.freezeDaysRemaining ?? 15) > 0 && <Button size="sm" variant="secondary" onClick={() => openFreeze(subscription)}>Заморозить</Button>}
+                  {!isFrozen && subscription.tariff?.visitsAmount !== 1 && (subscription.freezeDaysRemaining ?? subscription.freezeDaysTotal ?? 15) > 0 && <Button size="sm" variant="secondary" onClick={() => openFreeze(subscription)}>Заморозить</Button>}
                   {isFrozen && <Button size="sm" variant="secondary" onClick={() => handleUnfreeze(subscription)}>Разморозить</Button>}
                   <Button size="sm" variant="danger" onClick={() => openCancelSubscription(subscription)}>Деактивировать</Button>
                 </div>

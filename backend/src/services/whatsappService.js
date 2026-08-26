@@ -80,7 +80,7 @@ export function buildVerificationMessage(firstName, code) {
     .slice(0, 80);
   const greeting = safeName ? `Здравствуйте, ${safeName}!` : 'Здравствуйте!';
 
-  return `${greeting}\n\nВы запросили код подтверждения для Меркурий Медет.\n\nКод подтверждения: *${code}*\nКод действует 10 минут. Никому не сообщайте его.\n\nЕсли вы не запрашивали код, просто проигнорируйте это сообщение.`;
+  return `${greeting}\n\nКод входа администратора Меркурий Медет: *${code}*\nКод действует 10 минут. Никому не сообщайте его.\n\nЕсли вы не входили в административную панель, просто проигнорируйте это сообщение.`;
 }
 
 export async function sendVerificationCode(phone, code, firstName) {

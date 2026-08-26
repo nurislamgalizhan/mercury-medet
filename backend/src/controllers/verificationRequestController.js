@@ -5,15 +5,31 @@ import {
   cleanupExpiredRegistrationRequests,
   collectRegistrationStatusTokenHashes,
 } from '../utils/registrationSecurity.js';
+import { clearFailedAttemptsForIdentifier } from '../utils/authRateLimit.js';
+import { resetVisitorPassword } from '../utils/clientPasswordReset.js';
 
 function requestPublic(request, duplicateCount) {
   return {
+    kind: 'REGISTRATION',
     id: request.id,
     firstName: request.firstName,
     lastName: request.lastName,
     phone: request.phone,
     createdAt: request.createdAt,
     duplicateCount,
+  };
+}
+
+function passwordResetRequestPublic(request) {
+  return {
+    kind: 'PASSWORD_RESET',
+    id: request.id,
+    userId: request.userId,
+    firstName: request.firstName,
+    lastName: request.lastName,
+    phone: request.phone,
+    createdAt: request.createdAt,
+    duplicateCount: 1,
   };
 }
 
@@ -39,19 +55,18 @@ export async function getVerificationRequests(req, res, next) {
     await cleanupExpiredRegistrationRequests(prisma);
     const { page, limit, search } = verificationRequestsQuerySchema.parse(req.query);
     const where = buildSearchWhere(search);
-    const skip = (page - 1) * limit;
-
-    const [requests, total] = await Promise.all([
+    const [registrationRequests, passwordResetRequests] = await Promise.all([
       prisma.adminVerificationRequest.findMany({
         where,
-        skip,
-        take: limit,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
-      prisma.adminVerificationRequest.count({ where }),
+      prisma.adminPasswordResetRequest.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
     ]);
 
-    const phones = [...new Set(requests.map((request) => request.phone))];
+    const phones = [...new Set(registrationRequests.map((request) => request.phone))];
     const duplicateGroups = phones.length
       ? await prisma.adminVerificationRequest.groupBy({
           by: ['phone'],
@@ -63,10 +78,19 @@ export async function getVerificationRequests(req, res, next) {
       duplicateGroups.map((group) => [group.phone, group._count._all])
     );
 
-    res.json({
-      data: requests.map((request) => (
+    const combined = [
+      ...registrationRequests.map((request) => (
         requestPublic(request, duplicateCounts.get(request.phone) || 1)
       )),
+      ...passwordResetRequests.map(passwordResetRequestPublic),
+    ].sort((left, right) => (
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+    ));
+    const total = combined.length;
+    const skip = (page - 1) * limit;
+
+    res.json({
+      data: combined.slice(skip, skip + limit),
       meta: {
         total,
         page,
@@ -74,6 +98,70 @@ export async function getVerificationRequests(req, res, next) {
         pages: Math.max(1, Math.ceil(total / limit)),
       },
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function approvePasswordResetRequest(req, res, next) {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ message: 'Некорректная заявка' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const initial = await tx.adminPasswordResetRequest.findUnique({ where: { id } });
+      if (!initial) return null;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.phone}))`;
+      const request = await tx.adminPasswordResetRequest.findUnique({ where: { id } });
+      if (!request) return null;
+      const user = await tx.user.findUnique({ where: { id: request.userId } });
+      const temporaryPassword = await resetVisitorPassword(tx, {
+        user,
+        adminId: req.userId,
+      });
+      return { temporaryPassword, user };
+    });
+
+    if (!result) {
+      return res.status(404).json({ message: 'Заявка уже обработана или удалена' });
+    }
+    clearFailedAttemptsForIdentifier(result.user.phone);
+    res.json({
+      message: 'Временный пароль создан',
+      temporaryPassword: result.temporaryPassword,
+    });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
+    next(error);
+  }
+}
+
+export async function deletePasswordResetRequest(req, res, next) {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ message: 'Некорректная заявка' });
+    }
+    const request = await prisma.adminPasswordResetRequest.findUnique({ where: { id } });
+    if (!request) {
+      return res.status(404).json({ message: 'Заявка уже обработана или удалена' });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.adminPasswordResetRequest.delete({ where: { id } });
+      await createAdminAction(tx, {
+        adminId: req.userId,
+        targetUserId: request.userId,
+        action: 'CLIENT_PASSWORD_RESET_REQUEST_DELETED',
+        details: {
+          firstName: request.firstName,
+          lastName: request.lastName,
+          phone: request.phone,
+        },
+      });
+    });
+    res.json({ message: 'Заявка удалена' });
   } catch (error) {
     next(error);
   }

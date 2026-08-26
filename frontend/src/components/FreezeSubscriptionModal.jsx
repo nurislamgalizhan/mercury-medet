@@ -12,7 +12,8 @@ export default function FreezeSubscriptionModal({
   userId,
   onSuccess,
 }) {
-  const remainingDays = subscription?.freezeDaysRemaining ?? 15;
+  const totalDays = subscription?.freezeDaysTotal ?? 15;
+  const remainingDays = subscription?.freezeDaysRemaining ?? totalDays;
   const [mode, setMode] = useState('FIXED');
   const [days, setDays] = useState(Math.min(7, remainingDays));
   const [saving, setSaving] = useState(false);
@@ -51,7 +52,7 @@ export default function FreezeSubscriptionModal({
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="rounded-xl bg-slate-50 p-4">
           <p className="text-sm text-slate-500">Доступно</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{remainingDays} из 15 дней</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{remainingDays} из {totalDays} дней</p>
         </div>
 
         <div className="grid grid-cols-2 gap-2" role="group" aria-label="Режим заморозки">
