@@ -29,6 +29,21 @@ npm install
 npm run dev           # http://localhost:5173
 ```
 
+## Деплой на сервер (общий nginx-шлюз)
+
+`mmedet.kz` и `qr.bva.kz` живут на одном сервере за общим контейнером
+`app-gateway-nginx`, который держит `80/443` и терминирует TLS. Шлюз ходит во
+фронтенд по docker-сети `mercury-medet-app_default`, поэтому фронтенд **не должен**
+публиковать `80` — иначе `up` упадёт с конфликтом порта и положит оба сайта.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+```
+
+Override монтирует продовый `frontend/nginx.conf`, в котором бэкенд объявлен через
+`resolver` + `upstream`. Это важно: фронтенд BVA подключён к этой же сети, и имя
+`backend` в ней неоднозначно — без `resolve` nginx может закешировать чужой адрес.
+
 ## Учётные данные администратора (seed)
 - Телефон: `77000000000`
 - Пароль: ``

@@ -1,0 +1,9 @@
+# Server override for the shared app-gateway setup (mmedet.kz + qr.bva.kz).
+# Usage: docker compose -f docker-compose.yml -f docker-compose.server.yml up -d
+#
+# The gateway (app-gateway-nginx) owns :80/:443 and reaches this frontend over
+# the mercury-medet-app_default network, so the frontend must never publish :80.
+services:
+  frontend:
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
