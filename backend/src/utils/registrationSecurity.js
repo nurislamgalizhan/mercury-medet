@@ -45,7 +45,12 @@ export async function cleanupExpiredRegistrationRequests(prismaClient, now = new
     }),
   ]);
 
+  const trustedDevices = await prismaClient.adminTrustedDevice.deleteMany({
+    where: { expiresAt: { lt: now } },
+  });
+
   return {
+    trustedDevices: trustedDevices.count,
     adminRequests: adminRequests.count,
     whatsappAttempts: whatsappAttempts.count,
     statusReceipts: statusReceipts.count,

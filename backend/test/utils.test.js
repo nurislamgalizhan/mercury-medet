@@ -131,17 +131,25 @@ test('registration cleanup removes requests older than 30 days', async () => {
         return Promise.resolve({ count: 5 });
       },
     },
+    adminTrustedDevice: {
+      deleteMany: (payload) => {
+        operations.push(['trusted-device', payload]);
+        return Promise.resolve({ count: 6 });
+      },
+    },
     $transaction: (queries) => Promise.all(queries),
   };
 
   const result = await cleanupExpiredRegistrationRequests(prismaClient, now);
   assert.deepEqual(result, {
+    trustedDevices: 6,
     adminRequests: 2,
     whatsappAttempts: 3,
     statusReceipts: 4,
     passwordResetRequests: 5,
   });
-  assert.equal(operations.length, 4);
+  assert.equal(operations.length, 5);
+  assert.deepEqual(operations[4], ['trusted-device', { where: { expiresAt: { lt: now } } }]);
   assert.equal(operations[0][1].where.createdAt.lt.toISOString(), '2026-06-30T12:00:00.000Z');
 });
 

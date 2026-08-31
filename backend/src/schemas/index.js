@@ -22,6 +22,7 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   phone: phoneSchema,
   password: z.string().min(1, 'Пароль обязателен'),
+  trustedDeviceToken: z.string().max(200).optional(),
 });
 
 export const verifyCodeSchema = z.object({

@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { createAdminAction } from './adminActions.js';
 import { generateTemporaryPassword } from './registrationSecurity.js';
+import { forgetTrustedDevices } from './trustedDevices.js';
 
 export async function resetVisitorPassword(tx, { user, adminId }) {
   if (!user?.isActive) {
@@ -26,6 +27,7 @@ export async function resetVisitorPassword(tx, { user, adminId }) {
       verificationCodeExpires: null,
     },
   });
+  await forgetTrustedDevices(tx, user.id);
   await tx.adminPasswordResetRequest.deleteMany({ where: { userId: user.id } });
   await createAdminAction(tx, {
     adminId,

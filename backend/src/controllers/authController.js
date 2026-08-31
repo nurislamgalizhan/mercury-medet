@@ -1,5 +1,4 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { prisma } from '../db.js';
 import {
   registerSchema,
@@ -24,17 +23,15 @@ import {
   createRegistrationStatusToken,
   hashRegistrationStatusToken,
 } from '../utils/registrationSecurity.js';
+import { signToken } from '../utils/token.js';
+import {
+  forgetTrustedDevices,
+  isTrustedDevice,
+  rememberTrustedDevice,
+} from '../utils/trustedDevices.js';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_SECONDS = 60;
-
-function signToken(user) {
-  return jwt.sign(
-    { userId: user.id, role: user.role, tokenVersion: user.tokenVersion ?? 0 },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-  );
-}
 
 export function checkResendCooldown(verificationCodeExpires) {
   if (!verificationCodeExpires) return null;
@@ -167,7 +164,7 @@ export async function getRegistrationStatus(req, res, next) {
 
 export async function login(req, res, next) {
   try {
-    const { phone, password } = loginSchema.parse(req.body);
+    const { phone, password, trustedDeviceToken } = loginSchema.parse(req.body);
     const rateLimitState = getRateLimitState(req.ip, phone);
     if (rateLimitState.blocked) {
       return res.status(429).json({
@@ -183,7 +180,14 @@ export async function login(req, res, next) {
 
     clearFailedAttempts(req.ip, phone);
     if (user.role === 'ADMIN') {
-      return res.json(await buildAdminMfaResponse(user, 'AdminLogin'));
+      // A remembered device skips the WhatsApp code, never the password.
+      const trusted = await isTrustedDevice(prisma, {
+        userId: user.id,
+        token: trustedDeviceToken,
+      });
+      if (!trusted) {
+        return res.json(await buildAdminMfaResponse(user, 'AdminLogin'));
+      }
     }
     const token = signToken(user);
     const profile = await buildUserProfile(user);
@@ -224,7 +228,11 @@ export async function adminMfaVerify(req, res, next) {
     clearFailedAttempts(req.ip, rateKey);
     const token = signToken(updated);
     const profile = await buildUserProfile(updated);
-    res.json({ token, user: profile });
+    const newTrustedDeviceToken = await rememberTrustedDevice(prisma, {
+      userId: updated.id,
+      label: req.headers['user-agent'] || null,
+    });
+    res.json({ token, user: profile, trustedDeviceToken: newTrustedDeviceToken });
   } catch (error) {
     next(error);
   }
@@ -290,6 +298,7 @@ export async function completeTemporaryPassword(req, res, next) {
     });
 
     clearFailedAttempts(req.ip, updated.phone);
+    await forgetTrustedDevices(prisma, updated.id);
     const token = signToken(updated);
     const profile = await buildUserProfile(updated);
     res.json({ message: 'Новый пароль сохранен', token, user: profile });
@@ -345,6 +354,7 @@ export async function changePassword(req, res, next) {
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    await forgetTrustedDevices(prisma, user.id);
     res.json({ message: 'Пароль успешно изменен' });
   } catch (error) {
     next(error);

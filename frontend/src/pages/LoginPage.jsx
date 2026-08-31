@@ -7,6 +7,7 @@ import Button from '../components/ui/Button.jsx';
 import Input from '../components/ui/Input.jsx';
 import PhoneInput from '../components/ui/PhoneInput.jsx';
 import { isCompletePhone, toApiPhone } from '../utils/phone.js';
+import { getTrustedDeviceToken } from '../utils/session.js';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -55,6 +56,7 @@ export default function LoginPage() {
     const payload = {
       phone: toApiPhone(form.phone),
       password: form.password,
+      trustedDeviceToken: getTrustedDeviceToken(),
     };
 
     setLoading(true);

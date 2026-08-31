@@ -5,6 +5,7 @@ import api from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Button from '../components/ui/Button.jsx';
 import { formatPhoneDisplay } from '../utils/phone.js';
+import { saveTrustedDeviceToken } from '../utils/session.js';
 
 export default function AdminMfaPage() {
   const { login } = useAuth();
@@ -35,6 +36,7 @@ export default function AdminMfaPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/admin-mfa/verify', { phone, code });
+      saveTrustedDeviceToken(data.trustedDeviceToken);
       login(data.token, data.user);
       navigate(data.user.mustChangePassword ? '/change-temporary-password' : '/admin', { replace: true });
     } catch (error) {
