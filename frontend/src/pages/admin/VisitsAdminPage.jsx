@@ -6,9 +6,11 @@ import { useVisitLogs } from '../../hooks/useLogs.js';
 import { useSections } from '../../hooks/useSections.js';
 import { useAdminSocket } from '../../hooks/useSocket.js';
 
+const OWN_SITE = 'MERCURY';
+
 const SOURCE_LABELS = {
-  MERCURY: 'Меркурий Медет',
-  BVA: 'BVA, Коперника 130',
+  MERCURY: 'Этот сайт · mmedet.kz',
+  BVA: 'Из BVA, Коперника 130 · qr.bva.kz',
 };
 
 export default function VisitsAdminPage() {
@@ -93,8 +95,16 @@ export default function VisitsAdminPage() {
                     <p className="text-xs text-slate-400">{visit.user?.phone}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-600">{visit.section?.name}</td>
-                  <td className="px-4 py-3 text-slate-500">
-                    {SOURCE_LABELS[visit.sourceSite] || 'Локально'}
+                  <td className="px-4 py-3">
+                    {visit.sourceSite && visit.sourceSite !== OWN_SITE ? (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        {SOURCE_LABELS[visit.sourceSite]}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">
+                        {SOURCE_LABELS[visit.sourceSite] || 'Локально'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">{visit.guestCount ?? 0}</td>
                   <td className="px-4 py-3 text-right font-semibold">-{visit.visitsDeducted}</td>
