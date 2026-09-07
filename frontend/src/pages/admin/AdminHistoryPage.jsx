@@ -19,6 +19,8 @@ const ACTION_LABELS = {
   CLIENT_VERIFIED_BY_ADMIN: 'Клиент верифицирован администратором',
   CLIENT_VERIFICATION_REQUEST_DELETED: 'Удалена заявка на верификацию',
   CLIENT_PASSWORD_RESET: 'Сброшен пароль клиента',
+  USER_DELETED: 'Клиент полностью удален',
+  CLIENT_RENAMED: 'Изменено имя клиента',
   CLIENT_PASSWORD_RESET_REQUEST_DELETED: 'Удалена заявка на сброс пароля',
 };
 

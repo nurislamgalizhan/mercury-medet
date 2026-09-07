@@ -89,7 +89,7 @@ test('registration status tokens and temporary passwords use safe formats', () =
   const second = createRegistrationStatusToken();
   assert.notEqual(first.token, second.token);
   assert.equal(first.tokenHash, hashRegistrationStatusToken(first.token));
-  assert.match(generateTemporaryPassword(), /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  assert.match(generateTemporaryPassword(), /^[A-Z2-9]{8}$/);
 });
 
 test('registration status receipts preserve every unique token for a phone', () => {

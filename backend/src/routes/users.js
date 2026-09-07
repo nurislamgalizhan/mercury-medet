@@ -5,7 +5,8 @@ import {
   getUserById,
   createUser,
   adjustUser,
-  deactivateUser,
+  renameClient,
+  deleteUser,
   cancelSubscription,
   activateSubscription,
   getAdminActionLogs,
@@ -28,8 +29,9 @@ router.post('/', createUser);
 router.post('/:id/reset-password', resetClientPassword);
 router.get('/:id', getUserById);
 router.patch('/:id/adjust', adjustUser);
+router.patch('/:id/name', renameClient);
 router.post('/:id/subscriptions/:subscriptionId/cancel', cancelSubscription);
 router.post('/:id/subscriptions/:subscriptionId/activate', activateSubscription);
-router.delete('/:id', deactivateUser);
+router.delete('/:id', deleteUser);
 
 export default router;

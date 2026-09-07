@@ -4,10 +4,21 @@ import { useUsers } from '../../hooks/useUsers.js';
 import { useSections } from '../../hooks/useSections.js';
 import Pagination from '../../components/ui/Pagination.jsx';
 import Button from '../../components/ui/Button.jsx';
+import Modal from '../../components/ui/Modal.jsx';
+import Input from '../../components/ui/Input.jsx';
+import PhoneInput from '../../components/ui/PhoneInput.jsx';
+import { isCompletePhone, toApiPhone } from '../../utils/phone.js';
+import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
+const EMPTY_CLIENT = { firstName: '', lastName: '', phone: '' };
+
 export default function UsersPage() {
-  const { users, meta, loading, fetchUsers } = useUsers();
+  const { users, meta, loading, fetchUsers, createUser } = useUsers();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CLIENT);
+  const [creating, setCreating] = useState(false);
+  const [createdClient, setCreatedClient] = useState(null);
   const { sections, fetchSections } = useSections(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -24,6 +35,42 @@ export default function UsersPage() {
     setPage(1);
   };
 
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setCreateForm(EMPTY_CLIENT);
+    setCreatedClient(null);
+  };
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    if (!createForm.firstName.trim() || !createForm.lastName.trim()) {
+      toast.error('Укажите имя и фамилию');
+      return;
+    }
+    if (!isCompletePhone(createForm.phone)) {
+      toast.error('Введите номер в формате +7 XXX XXX XX XX');
+      return;
+    }
+    setCreating(true);
+    try {
+      const data = await createUser({
+        firstName: createForm.firstName.trim(),
+        lastName: createForm.lastName.trim(),
+        phone: toApiPhone(createForm.phone),
+      });
+      setCreatedClient({
+        name: `${data.user.firstName} ${data.user.lastName}`,
+        temporaryPassword: data.temporaryPassword,
+      });
+      toast.success('Клиент добавлен');
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Не удалось создать клиента');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-8">
       <div className="flex items-center justify-between mb-6">
@@ -31,6 +78,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-slate-900">Клиенты</h1>
           <p className="text-slate-500 text-sm mt-1">Всего: {meta.total}</p>
         </div>
+        <Button onClick={() => setCreateOpen(true)}>Добавить клиента</Button>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
@@ -127,6 +175,60 @@ export default function UsersPage() {
           <Pagination page={page} pages={meta.pages} onPageChange={setPage} />
         </div>
       </div>
+
+      <Modal isOpen={createOpen} onClose={closeCreate} title="Новый клиент">
+        {createdClient ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              {createdClient.name} добавлен. Передайте одноразовый пароль клиенту сейчас —
+              после закрытия окна он больше не будет показан. При первом входе клиент
+              обязан задать свой пароль.
+            </p>
+            <div className="rounded-lg bg-slate-950 text-white px-4 py-4 text-center text-xl font-mono tracking-widest select-all">
+              {createdClient.temporaryPassword}
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(createdClient.temporaryPassword);
+                  toast.success('Пароль скопирован');
+                }}
+              >
+                Копировать
+              </Button>
+              <Button variant="secondary" className="flex-1" onClick={closeCreate}>Закрыть</Button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleCreate} className="space-y-4">
+            <Input
+              label="Имя"
+              value={createForm.firstName}
+              onChange={(e) => setCreateForm((current) => ({ ...current, firstName: e.target.value }))}
+              maxLength={200}
+            />
+            <Input
+              label="Фамилия"
+              value={createForm.lastName}
+              onChange={(e) => setCreateForm((current) => ({ ...current, lastName: e.target.value }))}
+              maxLength={200}
+            />
+            <PhoneInput
+              label="Номер телефона"
+              value={createForm.phone}
+              onChange={(phone) => setCreateForm((current) => ({ ...current, phone }))}
+            />
+            <p className="text-xs text-slate-500">
+              Пароль задавать не нужно — система выдаст одноразовый, и клиент сменит его при первом входе.
+            </p>
+            <div className="flex gap-3">
+              <Button type="button" variant="secondary" className="flex-1" onClick={closeCreate}>Отмена</Button>
+              <Button type="submit" className="flex-1" loading={creating}>Создать</Button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
-import { usersQuerySchema, adjustUserSchema, createUserSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
+import { usersQuerySchema, adjustUserSchema, createUserSchema, deleteUserSchema, updateClientNameSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearFailedAttemptsForIdentifier } from '../utils/authRateLimit.js';
 import { resetVisitorPassword } from '../utils/clientPasswordReset.js';
+import { generateTemporaryPassword } from '../utils/registrationSecurity.js';
 import { clearExpiredVisits, clearExpiredVisitsForUsers } from '../utils/subscription.js';
 import {
   clearedFreezeData,
@@ -12,7 +13,7 @@ import {
   freezePublicState,
   getFreezeDaysRemaining,
 } from '../utils/freeze.js';
-import { commandSharedSubscription, createIdempotencyKey } from '../services/syncClient.js';
+import { commandSharedSubscription, createIdempotencyKey, renameSharedMember } from '../services/syncClient.js';
 import { applySharedSubscriptionState } from '../services/sharedOperations.js';
 
 function userPublic(user) {
@@ -197,17 +198,26 @@ export async function getUserById(req, res, next) {
 
 export async function createUser(req, res, next) {
   try {
-    const { firstName, lastName, phone, password, role } = createUserSchema.parse(req.body);
+    const { firstName, lastName, phone } = createUserSchema.parse(req.body);
 
     const existing = await prisma.user.findUnique({ where: { phone } });
     if (existing) {
       return res.status(409).json({ message: 'Пользователь с таким номером уже существует' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     const user = await prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
-        data: { firstName, lastName, phone, passwordHash, role: role || 'VISITOR', isVerified: true },
+        data: {
+          firstName,
+          lastName,
+          phone,
+          passwordHash,
+          role: 'VISITOR',
+          isVerified: true,
+          mustChangePassword: true,
+        },
       });
 
       await createAdminAction(tx, {
@@ -225,7 +235,7 @@ export async function createUser(req, res, next) {
       return createdUser;
     });
 
-    res.status(201).json(userPublic(user));
+    res.status(201).json({ user: userPublic(user), temporaryPassword });
   } catch (err) {
     next(err);
   }
@@ -255,6 +265,55 @@ export async function resetClientPassword(req, res, next) {
       message: 'Временный пароль создан',
       temporaryPassword,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function renameClient(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const parsed = updateClientNameSchema.parse(req.body);
+    const firstName = parsed.firstName.trim();
+    const lastName = parsed.lastName.trim();
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user || !user.isActive) {
+      return res.status(404).json({ message: 'Клиент не найден' });
+    }
+    if (user.role !== 'VISITOR') {
+      return res.status(403).json({ message: 'Здесь можно переименовать только клиента' });
+    }
+    if (user.firstName === firstName && user.lastName === lastName) {
+      return res.json(userPublic(user));
+    }
+
+    // Shared clients are renamed through the sync service first: it writes both
+    // site databases, so if it fails nothing has diverged yet.
+    if (user.syncMemberId) {
+      await renameSharedMember(user.syncMemberId, { firstName, lastName });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id },
+        data: { firstName, lastName },
+      });
+      await createAdminAction(tx, {
+        adminId: req.userId,
+        targetUserId: id,
+        action: 'CLIENT_RENAMED',
+        details: {
+          phone: user.phone,
+          previousName: `${user.firstName} ${user.lastName}`,
+          nextName: `${firstName} ${lastName}`,
+          sharedWithOtherSite: Boolean(user.syncMemberId),
+        },
+      });
+      return nextUser;
+    });
+
+    res.json(userPublic(updated));
   } catch (err) {
     next(err);
   }
@@ -339,27 +398,76 @@ export async function adjustUser(req, res, next) {
   }
 }
 
-export async function deactivateUser(req, res, next) {
+export async function deleteUser(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
-    if (user.role === 'ADMIN') return res.status(403).json({ message: 'Нельзя деактивировать администратора' });
+    deleteUserSchema.parse(req.body);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id }, data: { isActive: false } });
-      await createAdminAction(tx, {
-        adminId: req.userId,
-        targetUserId: id,
-        action: 'USER_DEACTIVATED',
-        details: {
-          phone: user.phone,
-          fullName: `${user.firstName} ${user.lastName}`,
+    const user = await prisma.user.findUnique({
+      where: { id },
+      include: {
+        subscriptions: {
+          where: { syncId: { not: null } },
+          select: { id: true },
+          take: 1,
+        },
+        visitLogs: {
+          where: { syncId: { not: null } },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!user) return res.status(404).json({ message: 'Клиент не найден' });
+    if (user.role === 'ADMIN') {
+      return res.status(403).json({ message: 'Администратора удалить нельзя' });
+    }
+    // A client shared with qr.bva.kz cannot be removed from one side: the sync
+    // reconciler treats the missing row as an undelivered projection and would
+    // recreate the client, subscription and balance within a minute.
+    if (user.syncMemberId || user.subscriptions.length || user.visitLogs.length) {
+      return res.status(409).json({
+        code: 'SYNCED_CLIENT_DELETE_BLOCKED',
+        message: 'Клиент связан с qr.bva.kz и не может быть удален только из Меркурия. Сначала нужно безопасно отключить его от общей синхронизации.',
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const visits = await tx.visitLog.deleteMany({ where: { userId: id } });
+      const subscriptions = await tx.userSubscription.deleteMany({ where: { userId: id } });
+      const sales = await tx.saleLog.deleteMany({ where: { userId: id } });
+      const memberships = await tx.sectionMembership.deleteMany({ where: { userId: id } });
+      await tx.adminActionLog.deleteMany({
+        where: {
+          OR: [
+            { targetUserId: id },
+            { adminId: id },
+          ],
         },
       });
+      await tx.registrationAttempt.deleteMany({ where: { phone: user.phone } });
+      await tx.adminVerificationRequest.deleteMany({ where: { phone: user.phone } });
+      await tx.user.delete({ where: { id } });
+      // targetUserId stays null -- the row it referenced no longer exists -- so the
+      // client's identity has to live in details, or the history says nothing.
+      await createAdminAction(tx, {
+        adminId: req.userId,
+        action: 'USER_DELETED',
+        details: {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+        },
+      });
+      return {
+        visits: visits.count,
+        subscriptions: subscriptions.count,
+        sales: sales.count,
+        memberships: memberships.count,
+      };
     });
 
-    res.json({ message: 'Пользователь деактивирован' });
+    res.json({ message: 'Клиент и все связанные данные удалены', deleted: result });
   } catch (err) {
     next(err);
   }
