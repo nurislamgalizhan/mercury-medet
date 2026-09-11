@@ -13,6 +13,7 @@ import {
   freezeSubscription,
   unfreezeSubscription,
   resetClientPassword,
+  issueClientPassword,
 } from '../controllers/userController.js';
 
 const router = Router();
@@ -27,6 +28,7 @@ router.get('/', getUsers);
 router.get('/admin-history', getAdminActionLogs);
 router.post('/', createUser);
 router.post('/:id/reset-password', resetClientPassword);
+router.post('/:id/issue-password', issueClientPassword);
 router.get('/:id', getUserById);
 router.patch('/:id/adjust', adjustUser);
 router.patch('/:id/name', renameClient);

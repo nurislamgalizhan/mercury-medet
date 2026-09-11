@@ -21,6 +21,7 @@ const ACTION_LABELS = {
   CLIENT_PASSWORD_RESET: 'Сброшен пароль клиента',
   USER_DELETED: 'Клиент полностью удален',
   CLIENT_RENAMED: 'Изменено имя клиента',
+  CLIENT_PASSWORD_ISSUED: 'Выдан пароль клиенту',
   CLIENT_PASSWORD_RESET_REQUEST_DELETED: 'Удалена заявка на сброс пароля',
 };
 

@@ -173,7 +173,12 @@ export async function login(req, res, next) {
     }
 
     const user = await prisma.user.findUnique({ where: { phone } });
-    if (!user || !user.isActive || !await bcrypt.compare(password, user.passwordHash)) {
+    // No hash means the administrator has not issued access yet. Same generic
+    // message as a wrong password, so the response reveals nothing either way.
+    const passwordValid = user?.passwordHash
+      ? await bcrypt.compare(password, user.passwordHash)
+      : false;
+    if (!user || !user.isActive || !passwordValid) {
       registerFailedAttempt(req.ip, phone);
       return res.status(401).json({ message: 'Неверный номер телефона или пароль' });
     }

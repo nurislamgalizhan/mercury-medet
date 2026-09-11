@@ -3,7 +3,7 @@ import { createAdminAction } from './adminActions.js';
 import { generateTemporaryPassword } from './registrationSecurity.js';
 import { forgetTrustedDevices } from './trustedDevices.js';
 
-export async function resetVisitorPassword(tx, { user, adminId }) {
+export async function resetVisitorPassword(tx, { user, adminId, action = 'CLIENT_PASSWORD_RESET' }) {
   if (!user?.isActive) {
     const error = new Error('Клиент не найден');
     error.statusCode = 404;
@@ -32,7 +32,7 @@ export async function resetVisitorPassword(tx, { user, adminId }) {
   await createAdminAction(tx, {
     adminId,
     targetUserId: user.id,
-    action: 'CLIENT_PASSWORD_RESET',
+    action,
     details: {
       firstName: user.firstName,
       lastName: user.lastName,

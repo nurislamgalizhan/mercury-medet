@@ -83,6 +83,15 @@ export async function sellTariff(req, res, next) {
     const now = new Date();
     const subscriptionEnd = addDays(now, tariff.durationDays);
     const visitsBalance = tariff.visitsAmount ?? 0;
+    // The shared member record is keyed by phone number, so a client registered
+    // without one cannot take part in the shared section until it is filled in.
+    if (isSharedSection(tariff.section) && !user.phone) {
+      return res.status(400).json({
+        code: 'PHONE_REQUIRED',
+        message: 'Для абонемента в общей секции нужен номер телефона клиента. Выдайте клиенту доступ, указав номер.',
+      });
+    }
+
     const shared = isSharedSection(tariff.section)
       ? await prepareSharedSubscription({
           user: {

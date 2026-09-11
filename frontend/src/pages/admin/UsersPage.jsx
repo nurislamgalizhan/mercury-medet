@@ -18,7 +18,6 @@ export default function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CLIENT);
   const [creating, setCreating] = useState(false);
-  const [createdClient, setCreatedClient] = useState(null);
   const { sections, fetchSections } = useSections(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -38,7 +37,6 @@ export default function UsersPage() {
   const closeCreate = () => {
     setCreateOpen(false);
     setCreateForm(EMPTY_CLIENT);
-    setCreatedClient(null);
   };
 
   const handleCreate = async (event) => {
@@ -47,22 +45,22 @@ export default function UsersPage() {
       toast.error('Укажите имя и фамилию');
       return;
     }
-    if (!isCompletePhone(createForm.phone)) {
-      toast.error('Введите номер в формате +7 XXX XXX XX XX');
+    // The phone number is optional here; it is only needed later, when an
+    // administrator issues sign-in access from the client's card.
+    const hasPhone = createForm.phone.trim().length > 0;
+    if (hasPhone && !isCompletePhone(createForm.phone)) {
+      toast.error('Введите номер в формате +7 XXX XXX XX XX или оставьте поле пустым');
       return;
     }
     setCreating(true);
     try {
-      const data = await createUser({
+      const created = await createUser({
         firstName: createForm.firstName.trim(),
         lastName: createForm.lastName.trim(),
-        phone: toApiPhone(createForm.phone),
+        ...(hasPhone && { phone: toApiPhone(createForm.phone) }),
       });
-      setCreatedClient({
-        name: `${data.user.firstName} ${data.user.lastName}`,
-        temporaryPassword: data.temporaryPassword,
-      });
-      toast.success('Клиент добавлен');
+      toast.success(`${created.firstName} ${created.lastName} добавлен`);
+      closeCreate();
       await load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Не удалось создать клиента');
@@ -151,7 +149,12 @@ export default function UsersPage() {
                   )}
                 </div>
                 <div className="flex-shrink-0 hidden xs:flex sm:flex">
-                  {u.isVerified ? (
+                  {u.awaitingPassword ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-sky-50 text-sky-700">
+                      <span className="w-1.5 h-1.5 bg-sky-500 rounded-full" />
+                      <span className="hidden sm:inline">Добавленный администратором</span>
+                    </span>
+                  ) : u.isVerified ? (
                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
                       <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                       <span className="hidden sm:inline">Верифицирован</span>
@@ -177,57 +180,33 @@ export default function UsersPage() {
       </div>
 
       <Modal isOpen={createOpen} onClose={closeCreate} title="Новый клиент">
-        {createdClient ? (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              {createdClient.name} добавлен. Передайте одноразовый пароль клиенту сейчас —
-              после закрытия окна он больше не будет показан. При первом входе клиент
-              обязан задать свой пароль.
-            </p>
-            <div className="rounded-lg bg-slate-950 text-white px-4 py-4 text-center text-xl font-mono tracking-widest select-all">
-              {createdClient.temporaryPassword}
-            </div>
-            <div className="flex gap-3">
-              <Button
-                className="flex-1"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(createdClient.temporaryPassword);
-                  toast.success('Пароль скопирован');
-                }}
-              >
-                Копировать
-              </Button>
-              <Button variant="secondary" className="flex-1" onClick={closeCreate}>Закрыть</Button>
-            </div>
+        <form onSubmit={handleCreate} className="space-y-4">
+          <Input
+            label="Имя"
+            value={createForm.firstName}
+            onChange={(e) => setCreateForm((current) => ({ ...current, firstName: e.target.value }))}
+            maxLength={200}
+          />
+          <Input
+            label="Фамилия"
+            value={createForm.lastName}
+            onChange={(e) => setCreateForm((current) => ({ ...current, lastName: e.target.value }))}
+            maxLength={200}
+          />
+          <PhoneInput
+            label="Номер телефона (необязательно)"
+            value={createForm.phone}
+            onChange={(phone) => setCreateForm((current) => ({ ...current, phone }))}
+          />
+          <p className="text-xs text-slate-500">
+            Клиент сразу станет полноценным — ему можно продавать абонементы и отмечать посещения.
+            Войти в личный кабинет он сможет только после того, как вы нажмёте «Выдать пароль» в его карточке.
+          </p>
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" className="flex-1" onClick={closeCreate}>Отмена</Button>
+            <Button type="submit" className="flex-1" loading={creating}>Создать</Button>
           </div>
-        ) : (
-          <form onSubmit={handleCreate} className="space-y-4">
-            <Input
-              label="Имя"
-              value={createForm.firstName}
-              onChange={(e) => setCreateForm((current) => ({ ...current, firstName: e.target.value }))}
-              maxLength={200}
-            />
-            <Input
-              label="Фамилия"
-              value={createForm.lastName}
-              onChange={(e) => setCreateForm((current) => ({ ...current, lastName: e.target.value }))}
-              maxLength={200}
-            />
-            <PhoneInput
-              label="Номер телефона"
-              value={createForm.phone}
-              onChange={(phone) => setCreateForm((current) => ({ ...current, phone }))}
-            />
-            <p className="text-xs text-slate-500">
-              Пароль задавать не нужно — система выдаст одноразовый, и клиент сменит его при первом входе.
-            </p>
-            <div className="flex gap-3">
-              <Button type="button" variant="secondary" className="flex-1" onClick={closeCreate}>Отмена</Button>
-              <Button type="submit" className="flex-1" loading={creating}>Создать</Button>
-            </div>
-          </form>
-        )}
+        </form>
       </Modal>
     </div>
   );

@@ -6,6 +6,8 @@ import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import PhoneInput from '../../components/ui/PhoneInput.jsx';
+import { isCompletePhone, toApiPhone } from '../../utils/phone.js';
 import SellTariffModal from '../../components/admin/SellTariffModal.jsx';
 import FreezeSubscriptionModal from '../../components/FreezeSubscriptionModal.jsx';
 import { useTariffs } from '../../hooks/useTariffs.js';
@@ -47,6 +49,7 @@ export default function UserDetailPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [issuePhone, setIssuePhone] = useState('');
 
   const fetchUser = async () => {
     try {
@@ -106,9 +109,18 @@ export default function UserDetailPage() {
   const handleResetPassword = async () => {
     setResetPasswordLoading(true);
     try {
-      const { data } = await api.post(`/users/${id}/reset-password`);
+      const needsPhone = !user.phone;
+      if (needsPhone && !isCompletePhone(issuePhone)) {
+        toast.error('Введите номер в формате +7 XXX XXX XX XX');
+        setResetPasswordLoading(false);
+        return;
+      }
+      const { data } = await api.post(`/users/${id}/issue-password`, {
+        ...(needsPhone && { phone: toApiPhone(issuePhone) }),
+      });
       setTemporaryPassword(data.temporaryPassword);
-      toast.success('Временный пароль создан');
+      toast.success('Одноразовый пароль создан');
+      await fetchUser();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Не удалось сбросить пароль');
     } finally {
@@ -119,6 +131,7 @@ export default function UserDetailPage() {
   const closeResetPassword = () => {
     setResetPasswordOpen(false);
     setTemporaryPassword('');
+    setIssuePhone('');
   };
 
   const subscriptions = user?.subscriptions || [];
@@ -313,12 +326,14 @@ export default function UserDetailPage() {
       <div className="bg-white rounded-2xl border border-slate-100 p-5 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900">{user.firstName} {user.lastName}</h1>
-          <p className="text-slate-500">{user.phone}</p>
+          <p className="text-slate-500">{user.phone || 'Телефон не указан'}</p>
           <p className="text-xs text-slate-400 mt-1">Активных абонементов: {activeSubscriptions.length}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={openRename}>Изменить имя</Button>
-          <Button variant="secondary" onClick={() => setResetPasswordOpen(true)}>Сбросить пароль</Button>
+          <Button variant="secondary" onClick={() => setResetPasswordOpen(true)}>
+            {user.awaitingPassword ? 'Выдать пароль' : 'Сбросить пароль'}
+          </Button>
           <Button onClick={() => setSellOpen(true)}>Продать абонемент</Button>
         </div>
       </div>
@@ -446,7 +461,11 @@ export default function UserDetailPage() {
 
       <SellTariffModal isOpen={sellOpen} onClose={() => setSellOpen(false)} user={user} onSuccess={fetchUser} />
 
-      <Modal isOpen={resetPasswordOpen} onClose={closeResetPassword} title="Сбросить пароль">
+      <Modal
+        isOpen={resetPasswordOpen}
+        onClose={closeResetPassword}
+        title={user.awaitingPassword ? 'Выдать пароль клиенту' : 'Сбросить пароль'}
+      >
         {temporaryPassword ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
@@ -467,12 +486,23 @@ export default function UserDetailPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            {!user.phone && (
+              <PhoneInput
+                label="Номер телефона"
+                value={issuePhone}
+                onChange={setIssuePhone}
+              />
+            )}
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              Все текущие сессии клиента завершатся. При следующем входе он будет обязан создать новый пароль.
+              {user.awaitingPassword
+                ? 'Клиент получит одноразовый пароль и сможет войти в личный кабинет. При первом входе система попросит задать собственный пароль.'
+                : 'Все текущие сессии клиента завершатся. При следующем входе он будет обязан создать новый пароль.'}
             </div>
             <div className="flex gap-3">
               <Button variant="secondary" className="flex-1" onClick={closeResetPassword}>Отмена</Button>
-              <Button className="flex-1" loading={resetPasswordLoading} onClick={handleResetPassword}>Сбросить</Button>
+              <Button className="flex-1" loading={resetPasswordLoading} onClick={handleResetPassword}>
+                {user.awaitingPassword ? 'Выдать' : 'Сбросить'}
+              </Button>
             </div>
           </div>
         )}

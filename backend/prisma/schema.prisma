@@ -30,6 +30,7 @@ enum AdminActionType {
   CLIENT_PASSWORD_RESET_REQUEST_DELETED
   USER_DELETED
   CLIENT_RENAMED
+  CLIENT_PASSWORD_ISSUED
 }
 
 enum TimeType {
@@ -66,8 +67,8 @@ model User {
   id                          Int       @id @default(autoincrement())
   firstName                   String
   lastName                    String
-  phone                       String    @unique
-  passwordHash                String
+  phone                       String?    @unique
+  passwordHash                String?
   role                        Role      @default(VISITOR)
   visitsBalance               Int       @default(0)
   subscriptionEnd             DateTime?
