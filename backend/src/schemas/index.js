@@ -153,13 +153,7 @@ export const verificationRequestsQuerySchema = paginationSchema.extend({
 export const createUserSchema = z.object({
   firstName: nameSchema,
   lastName: nameSchema,
-  // Optional: a client registered at the desk may not have given a number yet.
-  // Without one they simply cannot sign in until an administrator issues access.
-  phone: phoneSchema.optional(),
-});
-
-export const issuePasswordSchema = z.object({
-  phone: phoneSchema.optional(),
+  phone: phoneSchema,
 });
 
 export const updateClientNameSchema = z.object({

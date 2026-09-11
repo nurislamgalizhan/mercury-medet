@@ -45,11 +45,8 @@ export default function UsersPage() {
       toast.error('Укажите имя и фамилию');
       return;
     }
-    // The phone number is optional here; it is only needed later, when an
-    // administrator issues sign-in access from the client's card.
-    const hasPhone = createForm.phone.trim().length > 0;
-    if (hasPhone && !isCompletePhone(createForm.phone)) {
-      toast.error('Введите номер в формате +7 XXX XXX XX XX или оставьте поле пустым');
+    if (!isCompletePhone(createForm.phone)) {
+      toast.error('Введите номер в формате +7 XXX XXX XX XX');
       return;
     }
     setCreating(true);
@@ -57,7 +54,7 @@ export default function UsersPage() {
       const created = await createUser({
         firstName: createForm.firstName.trim(),
         lastName: createForm.lastName.trim(),
-        ...(hasPhone && { phone: toApiPhone(createForm.phone) }),
+        phone: toApiPhone(createForm.phone),
       });
       toast.success(`${created.firstName} ${created.lastName} добавлен`);
       closeCreate();
@@ -194,13 +191,14 @@ export default function UsersPage() {
             maxLength={200}
           />
           <PhoneInput
-            label="Номер телефона (необязательно)"
+            label="Номер телефона"
             value={createForm.phone}
             onChange={(phone) => setCreateForm((current) => ({ ...current, phone }))}
           />
           <p className="text-xs text-slate-500">
             Клиент сразу станет полноценным — ему можно продавать абонементы и отмечать посещения.
-            Войти в личный кабинет он сможет только после того, как вы нажмёте «Выдать пароль» в его карточке.
+            Пароль выдавать сейчас не нужно: войти в личный кабинет он сможет после того,
+            как вы нажмёте «Выдать пароль» в его карточке.
           </p>
           <div className="flex gap-3">
             <Button type="button" variant="secondary" className="flex-1" onClick={closeCreate}>Отмена</Button>

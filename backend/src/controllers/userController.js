@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
-import { usersQuerySchema, adjustUserSchema, createUserSchema, deleteUserSchema, updateClientNameSchema, issuePasswordSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
+import { usersQuerySchema, adjustUserSchema, createUserSchema, deleteUserSchema, updateClientNameSchema, logsQuerySchema, freezeSchema, cancelSubscriptionSchema, activateSubscriptionSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearFailedAttemptsForIdentifier } from '../utils/authRateLimit.js';
 import { resetVisitorPassword } from '../utils/clientPasswordReset.js';
@@ -203,11 +203,9 @@ export async function createUser(req, res, next) {
   try {
     const { firstName, lastName, phone } = createUserSchema.parse(req.body);
 
-    if (phone) {
-      const existing = await prisma.user.findUnique({ where: { phone } });
-      if (existing) {
-        return res.status(409).json({ message: 'Пользователь с таким номером уже существует' });
-      }
+    const existing = await prisma.user.findUnique({ where: { phone } });
+    if (existing) {
+      return res.status(409).json({ message: 'Пользователь с таким номером уже существует' });
     }
 
     // Created without a password on purpose: the client counts as a full client
@@ -218,7 +216,7 @@ export async function createUser(req, res, next) {
         data: {
           firstName,
           lastName,
-          phone: phone || null,
+          phone,
           passwordHash: null,
           role: 'VISITOR',
           isVerified: true,
@@ -260,12 +258,6 @@ export async function resetClientPassword(req, res, next) {
     if (user.role !== 'VISITOR') {
       return res.status(403).json({ message: 'Здесь можно сбросить пароль только клиента' });
     }
-    if (!user.phone) {
-      return res.status(400).json({
-        code: 'PHONE_REQUIRED',
-        message: 'Укажите номер телефона — без него клиент не сможет войти',
-      });
-    }
 
     const temporaryPassword = await prisma.$transaction((tx) => (
       resetVisitorPassword(tx, { user, adminId: req.userId })
@@ -284,7 +276,6 @@ export async function resetClientPassword(req, res, next) {
 export async function issueClientPassword(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const { phone } = issuePasswordSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user || !user.isActive) {
@@ -294,33 +285,15 @@ export async function issueClientPassword(req, res, next) {
       return res.status(403).json({ message: 'Здесь можно выдать пароль только клиенту' });
     }
 
-    // Sign-in is by phone number, so a client registered without one cannot be
-    // given access until someone supplies it.
-    const targetPhone = user.phone || phone || null;
-    if (!targetPhone) {
-      return res.status(400).json({
-        code: 'PHONE_REQUIRED',
-        message: 'Укажите номер телефона — без него клиент не сможет войти',
-      });
-    }
-    if (!user.phone) {
-      const taken = await prisma.user.findUnique({ where: { phone: targetPhone } });
-      if (taken && taken.id !== id) {
-        return res.status(409).json({ message: 'Этот номер уже занят другим клиентом' });
-      }
-    }
-
-    const temporaryPassword = await prisma.$transaction(async (tx) => {
-      if (!user.phone) {
-        await tx.user.update({ where: { id }, data: { phone: targetPhone } });
-      }
-      return resetVisitorPassword(tx, {
-        user: { ...user, phone: targetPhone },
+    const temporaryPassword = await prisma.$transaction((tx) => (
+      resetVisitorPassword(tx, {
+        user,
         adminId: req.userId,
+        // First issue and a later reset are different events in the history.
         action: user.passwordHash ? 'CLIENT_PASSWORD_RESET' : 'CLIENT_PASSWORD_ISSUED',
-      });
-    });
-    clearFailedAttemptsForIdentifier(targetPhone);
+      })
+    ));
+    clearFailedAttemptsForIdentifier(user.phone);
 
     res.json({ message: 'Одноразовый пароль создан', temporaryPassword });
   } catch (err) {
@@ -503,12 +476,8 @@ export async function deleteUser(req, res, next) {
           ],
         },
       });
-      if (user.phone) {
-        await tx.registrationAttempt.deleteMany({ where: { phone: user.phone } });
-      }
-      if (user.phone) {
-        await tx.adminVerificationRequest.deleteMany({ where: { phone: user.phone } });
-      }
+      await tx.registrationAttempt.deleteMany({ where: { phone: user.phone } });
+      await tx.adminVerificationRequest.deleteMany({ where: { phone: user.phone } });
       await tx.user.delete({ where: { id } });
       // targetUserId stays null -- the row it referenced no longer exists -- so the
       // client's identity has to live in details, or the history says nothing.
