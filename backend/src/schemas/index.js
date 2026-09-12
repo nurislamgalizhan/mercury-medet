@@ -136,6 +136,7 @@ export const logsQuerySchema = paginationSchema.extend({
   to: z.string().datetime({ offset: true }).optional(),
   userId: z.coerce.number().int().positive().optional(),
   sectionId: z.coerce.number().int().positive().optional(),
+  search: z.string().optional(),
 });
 
 export const usersQuerySchema = paginationSchema.extend({
