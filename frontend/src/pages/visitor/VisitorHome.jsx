@@ -32,7 +32,8 @@ export default function VisitorHome() {
     ? Math.max(0, differenceInDays(new Date(selectedSubscription.subscriptionEnd), new Date()))
     : 0;
   const totalVisitsToDeduct = useMemo(() => 1 + guestCount, [guestCount]);
-  const maxGuests = Math.max(0, (selectedSubscription?.visitsBalance ?? 1) - 1);
+  const maxGuests = Math.max(0, selectedSubscription?.guestVisitsRemaining ?? 0);
+  const canAddGuests = Boolean(!selectedSubscription?.isShared && maxGuests > 0);
   const canCheckIn = !isFrozen && (isUnlimited ? subscriptionActive : Boolean(selectedSubscription?.visitsBalance > 0 && subscriptionActive));
   const freezeDaysTotal = selectedSubscription?.freezeDaysTotal ?? 15;
   const freezeDaysRemaining = selectedSubscription?.freezeDaysRemaining ?? freezeDaysTotal;
@@ -65,8 +66,8 @@ export default function VisitorHome() {
     try {
       const { data } = await api.post('/visits/checkin', {
         sectionId: selectedSubscription.sectionId,
-        visitsDeducted: isUnlimited ? 1 : totalVisitsToDeduct,
-        guestCount: isUnlimited ? 0 : guestCount,
+        visitsDeducted: totalVisitsToDeduct,
+        guestCount,
         confirmDuplicate,
       });
       toast.success(data.message);
@@ -175,18 +176,16 @@ export default function VisitorHome() {
           <div>
             <h2 className="font-semibold text-slate-800 mb-1">Отметить посещение</h2>
             <p className="text-sm text-slate-500">
-              {isUnlimited
-                ? 'Для безлимитного тарифа можно отметить только собственное посещение.'
-                : 'Вы можете отметить себя и при необходимости добавить гостей.'}
+              {canAddGuests ? 'Отметьте себя и при необходимости добавьте гостей.' : 'Отметьте свое посещение.'}
             </p>
           </div>
 
-          {!isUnlimited && (
+          {canAddGuests && (
             <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-medium text-slate-800">Гости</p>
-                  <p className="text-sm text-slate-500">С каждого гостя спишется отдельное посещение.</p>
+                  <p className="text-sm text-slate-500">Осталось гостевых посещений: {maxGuests}</p>
                 </div>
                 <Button
                   variant={guestCount > 0 ? 'secondary' : 'success'}
@@ -221,7 +220,7 @@ export default function VisitorHome() {
               )}
 
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Всего спишется</span>
+                <span className="text-slate-500">Всего отметится</span>
                 <span className="font-semibold text-slate-800">{totalVisitsToDeduct}</span>
               </div>
             </div>
@@ -260,6 +259,14 @@ export default function VisitorHome() {
               <p className="text-slate-500">Срок действия</p>
               <p className="font-medium text-slate-900 mt-1">{selectedTariff.durationDays} дн.</p>
             </div>
+            {selectedSubscription.guestVisitsTotal > 0 && (
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-slate-500">Гостевые посещения</p>
+                <p className="font-medium text-slate-900 mt-1">
+                  {selectedSubscription.guestVisitsRemaining} из {selectedSubscription.guestVisitsTotal}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -328,7 +335,7 @@ export default function VisitorHome() {
           <p className="text-slate-600 text-center">
             {duplicateWarning
               ? duplicateWarning
-              : isUnlimited
+              : isUnlimited && guestCount === 0
                 ? (
                     <>
                       Подтвердите посещение<br />
@@ -337,9 +344,8 @@ export default function VisitorHome() {
                   )
                 : (
                     <>
-                      Подтвердите списание{' '}
-                      <span className="font-bold text-slate-900 text-lg">{totalVisitsToDeduct}</span>{' '}
-                      посещ.<br />
+                      Подтвердите посещение
+                      {guestCount > 0 && <><br /><span className="text-sm text-slate-500">Вы и {guestCount} гост.</span></>}<br />
                       <span className="text-sm text-slate-500">{selectedSubscription?.section?.name}</span>
                     </>
                   )}

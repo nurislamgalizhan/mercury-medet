@@ -64,12 +64,6 @@ export async function finalizeExpiredFreezes(prismaClient, now = new Date()) {
 
 export async function clearExpiredVisitsForUsers(prismaClient, now = new Date()) {
   await finalizeExpiredFreezes(prismaClient, now);
-  const finiteTariffs = await prismaClient.tariff.findMany({
-    where: { visitsAmount: { not: null } },
-    select: { id: true },
-  });
-  const finiteTariffIds = finiteTariffs.map((tariff) => tariff.id);
-
   const [expiredSubscriptions, depletedSubscriptions, legacyUsers] = await Promise.all([
     prismaClient.userSubscription.updateMany({
       where: {
@@ -79,17 +73,15 @@ export async function clearExpiredVisitsForUsers(prismaClient, now = new Date())
       },
       data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
     }),
-    finiteTariffIds.length
-      ? prismaClient.userSubscription.updateMany({
-          where: {
-            status: 'ACTIVE',
-            tariffId: { in: finiteTariffIds },
-            visitsBalance: { lte: 0 },
-            syncId: null,
-          },
-          data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
-        })
-      : Promise.resolve({ count: 0 }),
+    prismaClient.userSubscription.updateMany({
+      where: {
+        status: 'ACTIVE',
+        visitsAmount: { not: null },
+        visitsBalance: { lte: 0 },
+        syncId: null,
+      },
+      data: { status: 'EXPIRED', visitsBalance: 0, frozenUntil: null },
+    }),
     prismaClient.user.updateMany({
       where: {
         role: 'VISITOR',

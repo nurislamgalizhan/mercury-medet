@@ -7,7 +7,10 @@ import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 
 const TIME_TYPE_LABEL = { ANY: 'Любое время', MORNING: 'День', EVENING: 'Вечер' };
-const EMPTY_FORM = { sectionId: '', name: '', visitsAmount: '', durationDays: '', price: '', timeType: 'ANY', timeStart: '', timeEnd: '' };
+const EMPTY_FORM = {
+  sectionId: '', name: '', visitsAmount: '', durationDays: '', price: '', timeType: 'ANY', timeStart: '', timeEnd: '',
+  freezeDaysAllowed: '15', guestVisitsAllowed: '0',
+};
 
 export default function TariffsAdminPage() {
   const { tariffs, loading, fetchTariffs, createTariff, updateTariff, deactivateTariff, activateTariff } = useTariffs();
@@ -17,7 +20,7 @@ export default function TariffsAdminPage() {
   const [editing, setEditing] = useState(null);
   const [editingSection, setEditingSection] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [sectionForm, setSectionForm] = useState({ name: '', freezeDaysAllowed: '15' });
+  const [sectionForm, setSectionForm] = useState({ name: '' });
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState('active');
   const [selectedSectionId, setSelectedSectionId] = useState('all');
@@ -53,22 +56,21 @@ export default function TariffsAdminPage() {
       timeType: t.timeType,
       timeStart: t.timeStart ?? '',
       timeEnd: t.timeEnd ?? '',
+      freezeDaysAllowed: String(t.freezeDaysAllowed ?? 15),
+      guestVisitsAllowed: String(t.guestVisitsAllowed ?? 0),
     });
     setModalOpen(true);
   };
 
   const openSectionCreate = () => {
     setEditingSection(null);
-    setSectionForm({ name: '', freezeDaysAllowed: '15' });
+    setSectionForm({ name: '' });
     setSectionModalOpen(true);
   };
 
   const openSectionEdit = (section) => {
     setEditingSection(section);
-    setSectionForm({
-      name: section.name,
-      freezeDaysAllowed: String(section.freezeDaysAllowed ?? 15),
-    });
+    setSectionForm({ name: section.name });
     setSectionModalOpen(true);
   };
 
@@ -85,6 +87,8 @@ export default function TariffsAdminPage() {
         timeType: form.timeType,
         timeStart: form.timeType === 'ANY' ? null : (form.timeStart || null),
         timeEnd: form.timeType === 'ANY' ? null : (form.timeEnd || null),
+        freezeDaysAllowed: parseInt(form.freezeDaysAllowed, 10),
+        guestVisitsAllowed: parseInt(form.guestVisitsAllowed, 10),
       };
       if (editing) {
         await updateTariff(editing.id, payload);
@@ -106,10 +110,7 @@ export default function TariffsAdminPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = {
-        name: sectionForm.name,
-        freezeDaysAllowed: parseInt(sectionForm.freezeDaysAllowed, 10),
-      };
+      const payload = { name: sectionForm.name };
       if (editingSection) {
         await updateSection(editingSection.id, payload);
         toast.success('Секция обновлена');
@@ -155,6 +156,10 @@ export default function TariffsAdminPage() {
   };
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  const toggleGuestVisits = (enabled) => setForm({
+    ...form,
+    guestVisitsAllowed: enabled ? (form.guestVisitsAllowed === '0' ? '1' : form.guestVisitsAllowed) : '0',
+  });
 
   const renderTariffCard = (t) => (
     <div key={t.id} className="rounded-2xl border p-5 bg-white border-slate-100">
@@ -169,6 +174,10 @@ export default function TariffsAdminPage() {
       <h3 className="font-semibold text-slate-800 mb-1">{t.name}</h3>
       <p className="text-sm text-slate-500 mb-3">
         {t.visitsAmount ? `${t.visitsAmount} посещений` : 'Безлимит'} · {t.durationDays} дней
+      </p>
+      <p className="text-xs text-slate-500 mb-3">
+        Заморозка: до {t.freezeDaysAllowed ?? 15} дн.
+        {(t.guestVisitsAllowed ?? 0) > 0 && ` · Гости: ${t.guestVisitsAllowed}`}
       </p>
       <div className="flex items-center justify-between">
         <p className="text-xl font-bold text-brand-600">{t.price.toLocaleString()} ₸</p>
@@ -232,7 +241,7 @@ export default function TariffsAdminPage() {
               <div>
                 <p className="font-medium text-slate-800">{section.name}</p>
                 <p className={`text-xs mt-0.5 ${section.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  {section.isActive ? 'Активна' : 'Выключена'} · заморозка до {section.freezeDaysAllowed ?? 15} дн.
+                  {section.isActive ? 'Активна' : 'Выключена'}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -263,6 +272,35 @@ export default function TariffsAdminPage() {
             <Input label="Срок действия (дней)" type="number" min="1" value={form.durationDays} onChange={set('durationDays')} required />
           </div>
           <Input label="Цена (₸)" type="number" min="0" value={form.price} onChange={set('price')} required />
+          <Input
+            label="Дней заморозки для новых абонементов"
+            type="number"
+            min="0"
+            max="365"
+            value={form.freezeDaysAllowed}
+            onChange={set('freezeDaysAllowed')}
+            required
+          />
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 cursor-pointer">
+            <span className="text-sm font-medium text-slate-700">Возможность добавить гостя</span>
+            <input
+              type="checkbox"
+              checked={Number(form.guestVisitsAllowed) > 0}
+              onChange={(e) => toggleGuestVisits(e.target.checked)}
+              className="h-5 w-5 accent-brand-600"
+            />
+          </label>
+          {Number(form.guestVisitsAllowed) > 0 && (
+            <Input
+              label="Количество гостевых посещений"
+              type="number"
+              min="1"
+              max="365"
+              value={form.guestVisitsAllowed}
+              onChange={set('guestVisitsAllowed')}
+              required
+            />
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Тип времени</label>
             <select className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm" value={form.timeType} onChange={set('timeType')}>
@@ -287,15 +325,6 @@ export default function TariffsAdminPage() {
       <Modal isOpen={sectionModalOpen} onClose={() => setSectionModalOpen(false)} title={editingSection ? 'Редактировать секцию' : 'Новая секция'}>
         <form onSubmit={handleSectionSave} className="space-y-4">
           <Input label="Название" placeholder="Волейбол" value={sectionForm.name} onChange={(e) => setSectionForm({ ...sectionForm, name: e.target.value })} required />
-          <Input
-            label="Дней заморозки для новых абонементов"
-            type="number"
-            min="0"
-            max="365"
-            value={sectionForm.freezeDaysAllowed}
-            onChange={(e) => setSectionForm({ ...sectionForm, freezeDaysAllowed: e.target.value })}
-            required
-          />
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" type="button" onClick={() => setSectionModalOpen(false)} className="flex-1">Отмена</Button>
             <Button type="submit" loading={saving} className="flex-1">Сохранить</Button>

@@ -19,6 +19,7 @@ import {
   createFreezePlan,
   freezePublicState,
 } from '../src/utils/freeze.js';
+import { getSubscriptionPlan, subscriptionSnapshot } from '../src/utils/subscriptionPlan.js';
 import { createThrottledQueue } from '../src/utils/messageQueue.js';
 import { buildVerificationMessage } from '../src/services/whatsappService.js';
 import { checkResendCooldown } from '../src/controllers/authController.js';
@@ -235,6 +236,42 @@ test('freeze limit is taken from the subscription snapshot', () => {
   assert.equal(freezePublicState(frozen).freezeDaysRemaining, 0);
 });
 
+test('subscription plan remains immutable when the source tariff is edited', () => {
+  const soldPlan = subscriptionSnapshot({
+    name: 'ULTRA Безлимит',
+    visitsAmount: null,
+    durationDays: 30,
+    timeType: 'ANY',
+    timeStart: null,
+    timeEnd: null,
+    freezeDaysAllowed: 20,
+    guestVisitsAllowed: 3,
+  });
+  const subscription = {
+    ...soldPlan,
+    tariff: {
+      name: 'Измененный тариф',
+      visitsAmount: 8,
+      durationDays: 14,
+      timeType: 'EVENING',
+      timeStart: '18:00',
+      timeEnd: '21:00',
+    },
+  };
+
+  assert.deepEqual(getSubscriptionPlan(subscription), {
+    name: 'ULTRA Безлимит',
+    visitsAmount: null,
+    durationDays: 30,
+    timeType: 'ANY',
+    timeStart: null,
+    timeEnd: null,
+  });
+  assert.equal(subscription.guestVisitsTotal, 3);
+  assert.equal(subscription.guestVisitsRemaining, 3);
+  assert.equal(subscription.freezeDaysTotal, 20);
+});
+
 test('legacy freeze completion never shifts an already-credited end date', () => {
   const subscriptionEnd = new Date('2026-08-12T12:51:37.205Z');
   const completed = completeFreezePlan({
@@ -296,15 +333,6 @@ test('expired visits cleanup updates database rows due at the current time', asy
   let userUpdateManyPayload = null;
   const subscriptionUpdateManyPayloads = [];
   const prismaClient = {
-    tariff: {
-      findMany: async (payload) => {
-        assert.deepEqual(payload, {
-          where: { visitsAmount: { not: null } },
-          select: { id: true },
-        });
-        return [{ id: 10 }, { id: 11 }];
-      },
-    },
     userSubscription: {
       findMany: async () => [],
       updateMany: async (payload) => {
@@ -334,7 +362,7 @@ test('expired visits cleanup updates database rows due at the current time', asy
   assert.deepEqual(subscriptionUpdateManyPayloads[1], {
     where: {
       status: 'ACTIVE',
-      tariffId: { in: [10, 11] },
+      visitsAmount: { not: null },
       visitsBalance: { lte: 0 },
       syncId: null,
     },

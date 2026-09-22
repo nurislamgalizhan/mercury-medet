@@ -124,6 +124,8 @@ model Tariff {
   timeType     TimeType @default(ANY)
   timeStart    String?
   timeEnd      String?
+  freezeDaysAllowed  Int      @default(15)
+  guestVisitsAllowed Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -188,6 +190,14 @@ model UserSubscription {
   tariffId           Int
   saleLogId          Int?               @unique
   visitsBalance      Int                @default(0)
+  tariffName         String?
+  visitsAmount       Int?
+  tariffDurationDays Int?
+  timeType           TimeType           @default(ANY)
+  timeStart          String?
+  timeEnd            String?
+  guestVisitsTotal   Int                @default(0)
+  guestVisitsRemaining Int              @default(0)
   subscriptionEnd    DateTime
   frozenUntil        DateTime?
   freezeStartedAt    DateTime?

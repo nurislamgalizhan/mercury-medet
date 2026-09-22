@@ -119,6 +119,8 @@ export const createTariffSchema = z.object({
   timeType: z.enum(['ANY', 'MORNING', 'EVENING']),
   timeStart: z.string().nullable().optional(),
   timeEnd: z.string().nullable().optional(),
+  freezeDaysAllowed: z.number().int().min(0).max(365).default(15),
+  guestVisitsAllowed: z.number().int().min(0).max(365).default(0),
 });
 
 export const updateTariffSchema = createTariffSchema.partial().extend({

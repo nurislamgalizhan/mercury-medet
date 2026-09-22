@@ -4,6 +4,7 @@ import { emitNewVisit } from '../socket/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearExpiredVisitsForUsers } from '../utils/subscription.js';
 import { getDuplicateVisitWarning } from '../utils/visits.js';
+import { getSubscriptionPlan } from '../utils/subscriptionPlan.js';
 import {
   checkInSharedSubscription,
   createIdempotencyKey,
@@ -53,7 +54,7 @@ async function getSelectedSubscription(userId, sectionId) {
           sectionName: s.section.name,
           visitsBalance: s.visitsBalance,
           subscriptionEnd: s.subscriptionEnd,
-          tariff: s.tariff,
+          tariff: { ...s.tariff, ...getSubscriptionPlan(s) },
           isShared: Boolean(s.syncId),
           sourceSite: s.originSite,
         })),
@@ -67,7 +68,7 @@ async function getSelectedSubscription(userId, sectionId) {
   return { subscription: subscriptions[0] };
 }
 
-function validateSubscriptionForCheckIn(subscription, visitsDeducted, guestCount) {
+function validateSubscriptionForCheckIn(subscription, visitsDeducted, guestCount, { allowMultipleRegularVisits = false } = {}) {
   const now = new Date();
   if (subscription.frozenUntil && subscription.frozenUntil > now) {
     const until = subscription.frozenUntil.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -77,7 +78,7 @@ function validateSubscriptionForCheckIn(subscription, visitsDeducted, guestCount
     return { status: 400, message: 'Срок абонемента истек' };
   }
 
-  const { timeType, timeStart, timeEnd, visitsAmount } = subscription.tariff;
+  const { timeType, timeStart, timeEnd, visitsAmount } = getSubscriptionPlan(subscription);
   if (!isTimeAllowed(timeType, timeStart, timeEnd)) {
     const timeLabel = timeType === 'MORNING' ? 'дневному' : 'вечернему';
     return {
@@ -87,17 +88,21 @@ function validateSubscriptionForCheckIn(subscription, visitsDeducted, guestCount
   }
 
   const hasUnlimited = visitsAmount === null;
-  if (hasUnlimited && guestCount > 0) {
-    return { status: 400, message: 'Безлимитный абонемент не позволяет приглашать гостей' };
+  if (subscription.syncId && guestCount > 0) {
+    return { status: 400, message: 'Гостевые посещения пока недоступны для общего абонемента' };
+  }
+  if (guestCount > (subscription.guestVisitsRemaining ?? 0)) {
+    return { status: 400, message: `Доступно только ${subscription.guestVisitsRemaining ?? 0} гост. посещений по этому абонементу` };
   }
   if (!hasUnlimited) {
     if (subscription.visitsBalance <= 0) {
       return { status: 400, message: 'Недостаточно посещений на балансе' };
     }
-    if (visitsDeducted > subscription.visitsBalance) {
+    const regularVisitsDeducted = allowMultipleRegularVisits ? visitsDeducted : 1;
+    if (regularVisitsDeducted > subscription.visitsBalance) {
       return {
         status: 400,
-        message: `Нельзя списать ${visitsDeducted} посещений — на балансе только ${subscription.visitsBalance}`,
+        message: `Нельзя списать ${regularVisitsDeducted} посещений — на балансе только ${subscription.visitsBalance}`,
       };
     }
   }
@@ -167,8 +172,34 @@ export async function checkIn(req, res, next) {
       });
     }
 
-    const hasUnlimited = subscription.tariff.visitsAmount === null;
+    const hasUnlimited = getSubscriptionPlan(subscription).visitsAmount === null;
     const [visitLog, updatedSubscription] = await prisma.$transaction(async (tx) => {
+      const regularVisitsDeducted = hasUnlimited ? 0 : 1;
+      const availability = await tx.userSubscription.updateMany({
+        where: {
+          id: subscription.id,
+          ...(regularVisitsDeducted > 0 && { visitsBalance: { gte: regularVisitsDeducted } }),
+          ...(guestCount > 0 && { guestVisitsRemaining: { gte: guestCount } }),
+        },
+        data: {
+          ...(regularVisitsDeducted > 0 && { visitsBalance: { decrement: regularVisitsDeducted } }),
+          ...(guestCount > 0 && { guestVisitsRemaining: { decrement: guestCount } }),
+        },
+      });
+      if (!availability.count) {
+        throw Object.assign(
+          new Error('Баланс или гостевые посещения уже изменились. Обновите страницу и попробуйте снова.'),
+          { statusCode: 409 }
+        );
+      }
+
+      if (!hasUnlimited) {
+        await tx.userSubscription.updateMany({
+          where: { id: subscription.id, status: 'ACTIVE', visitsBalance: { lte: 0 } },
+          data: { status: 'EXPIRED', frozenUntil: null },
+        });
+      }
+
       const log = await tx.visitLog.create({
         data: {
           userId,
@@ -183,20 +214,8 @@ export async function checkIn(req, res, next) {
         },
       });
 
-      if (hasUnlimited) {
-        return [log, subscription];
-      }
-
-      const nextVisitsBalance = subscription.visitsBalance - visitsDeducted;
-      const updated = await tx.userSubscription.update({
-        where: { id: subscription.id },
-        data: {
-          visitsBalance: { decrement: visitsDeducted },
-          ...(nextVisitsBalance <= 0 && { status: 'EXPIRED', frozenUntil: null }),
-        },
-      });
-
-      if (nextVisitsBalance <= 0) {
+      const updated = await tx.userSubscription.findUnique({ where: { id: subscription.id } });
+      if (!hasUnlimited && updated.visitsBalance <= 0) {
         await tx.user.update({
           where: { id: userId },
           data: { visitsBalance: 0, frozenUntil: null },
@@ -321,7 +340,7 @@ export async function adminCheckIn(req, res, next) {
     }
     const subscription = selected.subscription;
 
-    const validationError = validateSubscriptionForCheckIn(subscription, visitsDeducted, 0);
+    const validationError = validateSubscriptionForCheckIn(subscription, visitsDeducted, 0, { allowMultipleRegularVisits: true });
     if (validationError) {
       return res.status(validationError.status).json({ message: validationError.message });
     }
@@ -363,7 +382,7 @@ export async function adminCheckIn(req, res, next) {
       });
     }
 
-    const hasUnlimited = subscription.tariff.visitsAmount === null;
+    const hasUnlimited = getSubscriptionPlan(subscription).visitsAmount === null;
     const [visitLog] = await prisma.$transaction(async (tx) => {
       const log = await tx.visitLog.create({
         data: {

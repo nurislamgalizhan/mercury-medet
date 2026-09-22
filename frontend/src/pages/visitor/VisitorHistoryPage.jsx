@@ -113,8 +113,17 @@ export default function VisitorHistoryPage() {
                       )}
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold text-slate-900">-{log.visitsDeducted}</p>
-                      <p className="text-xs text-slate-400">посещ.</p>
+                      {log.guestCount > 0 ? (
+                        <>
+                          <p className="font-semibold text-slate-900">Вы + {log.guestCount}</p>
+                          <p className="text-xs text-slate-400">гост.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-slate-900">-{log.visitsDeducted}</p>
+                          <p className="text-xs text-slate-400">посещ.</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}

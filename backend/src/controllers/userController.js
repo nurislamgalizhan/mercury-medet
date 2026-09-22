@@ -14,6 +14,7 @@ import {
 } from '../utils/freeze.js';
 import { commandSharedSubscription, createIdempotencyKey } from '../services/syncClient.js';
 import { applySharedSubscriptionState } from '../services/sharedOperations.js';
+import { getSubscriptionPlan } from '../utils/subscriptionPlan.js';
 
 function userPublic(user) {
   const {
@@ -28,8 +29,18 @@ function userPublic(user) {
 }
 
 function subscriptionPublic(subscription) {
+  const plan = getSubscriptionPlan(subscription);
   return {
     ...subscription,
+    tariff: subscription.tariff && {
+      ...subscription.tariff,
+      name: plan.name,
+      visitsAmount: plan.visitsAmount,
+      durationDays: plan.durationDays,
+      timeType: plan.timeType,
+      timeStart: plan.timeStart,
+      timeEnd: plan.timeEnd,
+    },
     ...freezePublicState(subscription),
     isShared: Boolean(subscription.syncId),
     sourceSite: subscription.originSite,
@@ -178,7 +189,7 @@ export async function getUserById(req, res, next) {
 
     const subscriptions = user.subscriptions.map(subscriptionPublic);
     const activeSubscriptions = subscriptions.filter((subscription) => subscription.status === 'ACTIVE');
-    const isUnlimitedSubscription = activeSubscriptions.some((subscription) => subscription.tariff?.visitsAmount === null);
+    const isUnlimitedSubscription = activeSubscriptions.some((subscription) => getSubscriptionPlan(subscription).visitsAmount === null);
 
     res.json({
       ...userPublic(user),
@@ -279,14 +290,15 @@ export async function adjustUser(req, res, next) {
     }
     const subscription = selected.subscription;
 
-    if (subscription.tariff?.visitsAmount === null) {
+    const plan = getSubscriptionPlan(subscription);
+    if (plan.visitsAmount === null) {
       return res.status(400).json({ message: 'У клиента безлимитный абонемент — корректировка посещений недоступна' });
     }
 
-    if (data.visitsBalance !== undefined && subscription.tariff?.visitsAmount != null) {
-      if (data.visitsBalance > subscription.tariff.visitsAmount) {
+    if (data.visitsBalance !== undefined && plan.visitsAmount != null) {
+      if (data.visitsBalance > plan.visitsAmount) {
         return res.status(400).json({
-          message: `Нельзя установить больше ${subscription.tariff.visitsAmount} посещений (лимит тарифа)`,
+          message: `Нельзя установить больше ${plan.visitsAmount} посещений (лимит абонемента)`,
         });
       }
     }
@@ -485,15 +497,16 @@ export async function activateSubscription(req, res, next) {
       return res.status(400).json({ message: 'В этой секции уже есть активный абонемент' });
     }
 
-    const isUnlimited = subscription.tariff?.visitsAmount === null;
+    const plan = getSubscriptionPlan(subscription);
+    const isUnlimited = plan.visitsAmount === null;
     const nextVisitsBalance = isUnlimited ? 0 : (data.visitsBalance ?? Math.max(1, subscription.visitsBalance || 1));
     if (!isUnlimited) {
       if (nextVisitsBalance < 1) {
         return res.status(400).json({ message: 'Для активации укажите минимум 1 посещение' });
       }
-      if (nextVisitsBalance > subscription.tariff.visitsAmount) {
+      if (nextVisitsBalance > plan.visitsAmount) {
         return res.status(400).json({
-          message: `Нельзя установить больше ${subscription.tariff.visitsAmount} посещений (лимит тарифа)`,
+          message: `Нельзя установить больше ${plan.visitsAmount} посещений (лимит абонемента)`,
         });
       }
     }
@@ -580,7 +593,7 @@ export async function freezeSubscription(req, res, next) {
     if (subscription.frozenUntil && subscription.frozenUntil > new Date()) {
       return res.status(400).json({ message: 'Абонемент уже заморожен' });
     }
-    if (subscription.tariff?.visitsAmount === 1) {
+    if (getSubscriptionPlan(subscription).visitsAmount === 1) {
       return res.status(400).json({ message: 'Разовое посещение нельзя заморозить' });
     }
 

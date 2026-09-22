@@ -308,6 +308,11 @@ export default function UserDetailPage() {
                   Заморозка: доступно {subscription.freezeDaysRemaining ?? subscription.freezeDaysTotal ?? 15} из {subscription.freezeDaysTotal ?? 15} дней
                 </p>
               )}
+              {subscription.guestVisitsTotal > 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Гостевые посещения: {subscription.guestVisitsRemaining} из {subscription.guestVisitsTotal}
+                </p>
+              )}
               {isFrozen && <p className="mt-3 text-sm text-blue-700 bg-blue-50 rounded-xl px-3 py-2">Заморожен до {format(new Date(subscription.frozenUntil), 'dd.MM.yyyy')}</p>}
               {isActive && (
                 <div className="flex flex-wrap gap-2 mt-4">
@@ -338,7 +343,9 @@ export default function UserDetailPage() {
                   <p className="text-sm text-slate-600">{format(new Date(v.createdAt), 'dd.MM.yyyy HH:mm')}</p>
                   <p className="text-xs text-slate-400">{v.section?.name}</p>
                 </div>
-                <span className="text-sm font-medium text-slate-800">−{v.visitsDeducted} посещений</span>
+                <span className="text-sm font-medium text-slate-800">
+                  {v.guestCount > 0 ? `Клиент + ${v.guestCount} гост.` : `−${v.visitsDeducted} посещений`}
+                </span>
               </div>
             ))}
           </div>

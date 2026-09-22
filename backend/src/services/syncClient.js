@@ -75,7 +75,7 @@ export function tariffSnapshot(tariff) {
     name: tariff.name,
     visitsAmount: tariff.visitsAmount,
     durationDays: tariff.durationDays,
-    freezeDaysTotal: tariff.section?.freezeDaysAllowed ?? 15,
+    freezeDaysTotal: tariff.freezeDaysAllowed ?? 15,
     price: tariff.price,
     timeType: tariff.timeType,
     timeStart: tariff.timeStart,

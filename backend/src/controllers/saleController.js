@@ -2,6 +2,7 @@ import { prisma } from '../db.js';
 import { logsQuerySchema, refundSaleSchema, sellTariffSchema, updateSaleSchema } from '../schemas/index.js';
 import { createAdminAction } from '../utils/adminActions.js';
 import { clearExpiredVisitsForUsers } from '../utils/subscription.js';
+import { subscriptionSnapshot } from '../utils/subscriptionPlan.js';
 import {
   commandSharedSubscription,
   confirmSharedSubscription,
@@ -119,7 +120,7 @@ export async function sellTariff(req, res, next) {
           saleLogId: sale.id,
           visitsBalance,
           subscriptionEnd,
-          freezeDaysTotal: tariff.section.freezeDaysAllowed,
+          ...subscriptionSnapshot(tariff),
           status: 'ACTIVE',
           ...(shared && {
             syncId: shared.syncId,
@@ -215,9 +216,10 @@ export async function updateSale(req, res, next) {
       return res.status(400).json({ message: 'Возвращенную продажу нельзя редактировать' });
     }
 
-    const nextTariff = data.tariffId
-      ? await prisma.tariff.findUnique({ where: { id: data.tariffId }, include: { section: true } })
-      : sale.tariff;
+    const nextTariff = await prisma.tariff.findUnique({
+      where: { id: data.tariffId ?? sale.tariffId },
+      include: { section: true },
+    });
     if (!nextTariff || !nextTariff.isActive || !nextTariff.section?.isActive) {
       return res.status(404).json({ message: 'Тариф или секция не найдены/неактивны' });
     }
@@ -301,7 +303,7 @@ export async function updateSale(req, res, next) {
             sectionId: nextTariff.sectionId,
             visitsBalance: nextTariff.visitsAmount ?? 0,
             subscriptionEnd: nextSubscriptionEnd,
-            freezeDaysTotal: nextTariff.section.freezeDaysAllowed,
+            ...subscriptionSnapshot(nextTariff),
             status: nextSubscriptionEnd && nextSubscriptionEnd <= new Date() ? 'EXPIRED' : 'ACTIVE',
           },
         });
