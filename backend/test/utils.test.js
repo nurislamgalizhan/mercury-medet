@@ -387,6 +387,37 @@ test('expired visits cleanup updates database rows due at the current time', asy
   });
 });
 
+test('unlimited subscriptions with a zero display balance expire only on their end date', async () => {
+  const subscriptionUpdateManyPayloads = [];
+  const prismaClient = {
+    userSubscription: {
+      findMany: async () => [],
+      updateMany: async (payload) => {
+        subscriptionUpdateManyPayloads.push(payload);
+        return { count: 0 };
+      },
+    },
+    user: {
+      updateMany: async () => ({ count: 0 }),
+    },
+  };
+
+  await clearExpiredVisitsForUsers(prismaClient, new Date('2026-12-14T23:59:59.999Z'));
+  assert.deepEqual(subscriptionUpdateManyPayloads[1].where, {
+    status: 'ACTIVE',
+    visitsAmount: { not: null },
+    visitsBalance: { lte: 0 },
+    syncId: null,
+  });
+
+  await clearExpiredVisitsForUsers(prismaClient, new Date('2026-12-15T00:00:00.000Z'));
+  assert.deepEqual(subscriptionUpdateManyPayloads[2].where, {
+    status: 'ACTIVE',
+    subscriptionEnd: { lte: new Date('2026-12-15T00:00:00.000Z') },
+    syncId: null,
+  });
+});
+
 test('daily cleanup is scheduled for 23:59 server time', () => {
   assert.equal(
     getMillisecondsUntilNextDailyCleanup(new Date('2026-05-12T23:58:30.000')),
