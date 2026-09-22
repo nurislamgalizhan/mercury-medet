@@ -2,6 +2,7 @@ import crypto from 'crypto';
 
 const REQUEST_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const TEMPORARY_PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const TEMPORARY_PASSWORD_LENGTH = 8;
 
 export function createRegistrationStatusToken() {
   const token = crypto.randomBytes(32).toString('base64url');
@@ -17,15 +18,12 @@ export function collectRegistrationStatusTokenHashes(...recordGroups) {
   return [...new Set(records.map((record) => record?.statusTokenHash).filter(Boolean))];
 }
 
+// One continuous run of characters: administrators read these out over the phone,
+// and the old XXXX-XXXX-XXXX grouping had people guessing where the dashes went.
 export function generateTemporaryPassword() {
-  const characters = Array.from({ length: 12 }, () => (
+  return Array.from({ length: TEMPORARY_PASSWORD_LENGTH }, () => (
     TEMPORARY_PASSWORD_ALPHABET[crypto.randomInt(TEMPORARY_PASSWORD_ALPHABET.length)]
-  ));
-  return [
-    characters.slice(0, 4).join(''),
-    characters.slice(4, 8).join(''),
-    characters.slice(8, 12).join(''),
-  ].join('-');
+  )).join('');
 }
 
 export async function cleanupExpiredRegistrationRequests(prismaClient, now = new Date()) {
@@ -45,7 +43,12 @@ export async function cleanupExpiredRegistrationRequests(prismaClient, now = new
     }),
   ]);
 
+  const trustedDevices = await prismaClient.adminTrustedDevice.deleteMany({
+    where: { expiresAt: { lt: now } },
+  });
+
   return {
+    trustedDevices: trustedDevices.count,
     adminRequests: adminRequests.count,
     whatsappAttempts: whatsappAttempts.count,
     statusReceipts: statusReceipts.count,

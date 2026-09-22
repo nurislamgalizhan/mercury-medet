@@ -28,6 +28,9 @@ enum AdminActionType {
   CLIENT_VERIFICATION_REQUEST_DELETED
   CLIENT_PASSWORD_RESET
   CLIENT_PASSWORD_RESET_REQUEST_DELETED
+  USER_DELETED
+  CLIENT_RENAMED
+  CLIENT_PASSWORD_ISSUED
 }
 
 enum TimeType {
@@ -65,7 +68,7 @@ model User {
   firstName                   String
   lastName                    String
   phone                       String    @unique
-  passwordHash                String
+  passwordHash                String?
   role                        Role      @default(VISITOR)
   visitsBalance               Int       @default(0)
   subscriptionEnd             DateTime?
@@ -88,6 +91,7 @@ model User {
   registrationStatusReceipts RegistrationStatusReceipt[]
   passwordResetRequest       AdminPasswordResetRequest?
 
+  trustedDevices             AdminTrustedDevice[]
   verificationCode        String?
   verificationCodeExpires DateTime?
 
@@ -250,6 +254,22 @@ model AdminVerificationRequest {
   @@index([phone, createdAt])
   @@index([createdAt])
   @@map("admin_verification_requests")
+}
+
+model AdminTrustedDevice {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  tokenHash  String   @unique
+  label      String?
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("admin_trusted_devices")
 }
 
 model RegistrationStatusReceipt {

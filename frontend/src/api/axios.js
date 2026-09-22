@@ -14,7 +14,19 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Sliding session: the API hands back a refreshed token as we go, so an
+    // active user never reaches the expiry.
+    const renewed = response.headers?.['x-session-token'];
+    if (renewed) {
+      try {
+        localStorage.setItem('token', renewed);
+      } catch {
+        /* storage unavailable — the current token still works */
+      }
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');

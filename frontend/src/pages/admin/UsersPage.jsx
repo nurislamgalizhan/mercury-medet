@@ -4,10 +4,20 @@ import { useUsers } from '../../hooks/useUsers.js';
 import { useSections } from '../../hooks/useSections.js';
 import Pagination from '../../components/ui/Pagination.jsx';
 import Button from '../../components/ui/Button.jsx';
+import Modal from '../../components/ui/Modal.jsx';
+import Input from '../../components/ui/Input.jsx';
+import PhoneInput from '../../components/ui/PhoneInput.jsx';
+import { isCompletePhone, toApiPhone } from '../../utils/phone.js';
+import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
+const EMPTY_CLIENT = { firstName: '', lastName: '', phone: '' };
+
 export default function UsersPage() {
-  const { users, meta, loading, fetchUsers } = useUsers();
+  const { users, meta, loading, fetchUsers, createUser } = useUsers();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CLIENT);
+  const [creating, setCreating] = useState(false);
   const { sections, fetchSections } = useSections(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -24,6 +34,38 @@ export default function UsersPage() {
     setPage(1);
   };
 
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setCreateForm(EMPTY_CLIENT);
+  };
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    if (!createForm.firstName.trim() || !createForm.lastName.trim()) {
+      toast.error('Укажите имя и фамилию');
+      return;
+    }
+    if (!isCompletePhone(createForm.phone)) {
+      toast.error('Введите номер в формате +7 XXX XXX XX XX');
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await createUser({
+        firstName: createForm.firstName.trim(),
+        lastName: createForm.lastName.trim(),
+        phone: toApiPhone(createForm.phone),
+      });
+      toast.success(`${created.firstName} ${created.lastName} добавлен`);
+      closeCreate();
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Не удалось создать клиента');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-8">
       <div className="flex items-center justify-between mb-6">
@@ -31,6 +73,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-slate-900">Клиенты</h1>
           <p className="text-slate-500 text-sm mt-1">Всего: {meta.total}</p>
         </div>
+        <Button onClick={() => setCreateOpen(true)}>Добавить клиента</Button>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
@@ -103,7 +146,12 @@ export default function UsersPage() {
                   )}
                 </div>
                 <div className="flex-shrink-0 hidden xs:flex sm:flex">
-                  {u.isVerified ? (
+                  {u.awaitingPassword ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-sky-50 text-sky-700">
+                      <span className="w-1.5 h-1.5 bg-sky-500 rounded-full" />
+                      <span className="hidden sm:inline">Добавленный администратором</span>
+                    </span>
+                  ) : u.isVerified ? (
                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
                       <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                       <span className="hidden sm:inline">Верифицирован</span>
@@ -127,6 +175,37 @@ export default function UsersPage() {
           <Pagination page={page} pages={meta.pages} onPageChange={setPage} />
         </div>
       </div>
+
+      <Modal isOpen={createOpen} onClose={closeCreate} title="Новый клиент">
+        <form onSubmit={handleCreate} className="space-y-4">
+          <Input
+            label="Имя"
+            value={createForm.firstName}
+            onChange={(e) => setCreateForm((current) => ({ ...current, firstName: e.target.value }))}
+            maxLength={200}
+          />
+          <Input
+            label="Фамилия"
+            value={createForm.lastName}
+            onChange={(e) => setCreateForm((current) => ({ ...current, lastName: e.target.value }))}
+            maxLength={200}
+          />
+          <PhoneInput
+            label="Номер телефона"
+            value={createForm.phone}
+            onChange={(phone) => setCreateForm((current) => ({ ...current, phone }))}
+          />
+          <p className="text-xs text-slate-500">
+            Клиент сразу станет полноценным — ему можно продавать абонементы и отмечать посещения.
+            Пароль выдавать сейчас не нужно: войти в личный кабинет он сможет после того,
+            как вы нажмёте «Выдать пароль» в его карточке.
+          </p>
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" className="flex-1" onClick={closeCreate}>Отмена</Button>
+            <Button type="submit" className="flex-1" loading={creating}>Создать</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

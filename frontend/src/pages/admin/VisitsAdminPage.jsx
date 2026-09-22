@@ -6,22 +6,25 @@ import { useVisitLogs } from '../../hooks/useLogs.js';
 import { useSections } from '../../hooks/useSections.js';
 import { useAdminSocket } from '../../hooks/useSocket.js';
 
+const OWN_SITE = 'MERCURY';
+
 const SOURCE_LABELS = {
-  MERCURY: 'Меркурий Медет',
-  BVA: 'BVA, Коперника 130',
+  MERCURY: 'Этот сайт · mmedet.kz',
+  BVA: 'Из BVA, Коперника 130 · qr.bva.kz',
 };
 
 export default function VisitsAdminPage() {
   const [dateRange, setDateRange] = useState({ from: startOfDay(new Date()), to: endOfDay(new Date()) });
   const [page, setPage] = useState(1);
   const [sectionId, setSectionId] = useState('all');
+  const [search, setSearch] = useState('');
   const { logs, meta, loading, fetchLogs, prependLog } = useVisitLogs();
   const { sections, fetchSections } = useSections(true);
 
   const sectionParam = sectionId === 'all' ? undefined : sectionId;
   const loadVisits = useCallback(() => {
-    fetchLogs({ page, from: dateRange.from, to: dateRange.to, sectionId: sectionParam });
-  }, [page, dateRange, sectionParam, fetchLogs]);
+    fetchLogs({ page, from: dateRange.from, to: dateRange.to, sectionId: sectionParam, search });
+  }, [page, dateRange, sectionParam, search, fetchLogs]);
 
   useEffect(() => { fetchSections(); }, [fetchSections]);
   useEffect(() => { loadVisits(); }, [loadVisits]);
@@ -30,7 +33,11 @@ export default function VisitsAdminPage() {
     const createdAt = new Date(visitLog.createdAt);
     const matchesSection = sectionId === 'all' || visitLog.sectionId === Number(sectionId);
     const matchesDate = (!dateRange.from || createdAt >= dateRange.from) && (!dateRange.to || createdAt <= dateRange.to);
-    if (page === 1 && matchesSection && matchesDate) {
+    // While a search is active, only let through check-ins that match it.
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || [visitLog.user?.firstName, visitLog.user?.lastName, visitLog.user?.phone]
+      .some((value) => value?.toLowerCase().includes(query));
+    if (page === 1 && matchesSection && matchesDate && matchesSearch) {
       prependLog(visitLog);
     }
   });
@@ -42,6 +49,11 @@ export default function VisitsAdminPage() {
 
   const handleSectionChange = (nextSectionId) => {
     setSectionId(nextSectionId);
+    setPage(1);
+  };
+
+  const handleSearch = (event) => {
+    setSearch(event.target.value);
     setPage(1);
   };
 
@@ -65,7 +77,19 @@ export default function VisitsAdminPage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-        <div className="p-4 border-b border-slate-100">
+        <div className="p-4 border-b border-slate-100 space-y-4">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Поиск по имени, фамилии, телефону..."
+              value={search}
+              onChange={handleSearch}
+              className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
           <p className="text-sm text-slate-500">Всего: <span className="font-semibold text-slate-800">{meta.total}</span></p>
         </div>
         <div className="overflow-x-auto">
@@ -93,8 +117,16 @@ export default function VisitsAdminPage() {
                     <p className="text-xs text-slate-400">{visit.user?.phone}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-600">{visit.section?.name}</td>
-                  <td className="px-4 py-3 text-slate-500">
-                    {SOURCE_LABELS[visit.sourceSite] || 'Локально'}
+                  <td className="px-4 py-3">
+                    {visit.sourceSite && visit.sourceSite !== OWN_SITE ? (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        {SOURCE_LABELS[visit.sourceSite]}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">
+                        {SOURCE_LABELS[visit.sourceSite] || 'Локально'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">{visit.guestCount ?? 0}</td>
                   <td className="px-4 py-3 text-right font-semibold">-{visit.visitsDeducted}</td>

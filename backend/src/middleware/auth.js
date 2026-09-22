@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db.js';
+import { signToken, shouldRenewToken } from '../utils/token.js';
 
 async function authenticateRequest(req, res, next, allowTemporaryPassword) {
   const authHeader = req.headers.authorization;
@@ -33,6 +34,12 @@ async function authenticateRequest(req, res, next, allowTemporaryPassword) {
         code: 'PASSWORD_CHANGE_REQUIRED',
         message: 'Необходимо установить новый пароль',
       });
+    }
+
+    // Sliding session: refresh the token well before it lapses so an active
+    // user is never bounced to the login screen mid-work.
+    if (shouldRenewToken(payload)) {
+      res.setHeader('X-Session-Token', signToken(user));
     }
 
     req.userId = user.id;

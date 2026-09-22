@@ -248,12 +248,22 @@ export async function checkIn(req, res, next) {
 
 export async function getVisitLogs(req, res, next) {
   try {
-    const { page, limit, from, to, userId, sectionId } = logsQuerySchema.parse(req.query);
+    const { page, limit, from, to, userId, sectionId, search } = logsQuerySchema.parse(req.query);
     const skip = (page - 1) * limit;
 
     const where = {
       ...(userId && { userId }),
       ...(sectionId && { sectionId }),
+      // Same fields the client list searches on, matched through the visit's client.
+      ...(search && {
+        user: {
+          OR: [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+          ],
+        },
+      }),
       ...(from || to
         ? {
             createdAt: {

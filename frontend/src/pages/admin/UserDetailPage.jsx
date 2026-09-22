@@ -40,6 +40,11 @@ export default function UserDetailPage() {
   const [subscriptionToActivate, setSubscriptionToActivate] = useState(null);
   const [activateForm, setActivateForm] = useState({ visitsBalance: '' });
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameForm, setRenameForm] = useState({ firstName: '', lastName: '' });
+  const [renaming, setRenaming] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
 
@@ -58,12 +63,53 @@ export default function UserDetailPage() {
   useEffect(() => { fetchUser(); }, [id]);
   useEffect(() => { fetchTariffs(); }, [fetchTariffs]);
 
+  const handleDeleteUser = async () => {
+    if (deleteConfirmation !== 'УДАЛИТЬ') return;
+    setSaving(true);
+    try {
+      await api.delete(`/users/${id}`, { data: { confirmDeletion: true } });
+      toast.success('Клиент и все его данные удалены');
+      navigate('/admin/users', { replace: true });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Не удалось удалить клиента');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openRename = () => {
+    setRenameForm({ firstName: user.firstName, lastName: user.lastName });
+    setRenameOpen(true);
+  };
+
+  const handleRename = async (event) => {
+    event.preventDefault();
+    const firstName = renameForm.firstName.trim();
+    const lastName = renameForm.lastName.trim();
+    if (!firstName || !lastName) {
+      toast.error('Укажите имя и фамилию');
+      return;
+    }
+    setRenaming(true);
+    try {
+      await api.patch(`/users/${id}/name`, { firstName, lastName });
+      toast.success('Имя клиента обновлено');
+      setRenameOpen(false);
+      await fetchUser();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Не удалось изменить имя');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   const handleResetPassword = async () => {
     setResetPasswordLoading(true);
     try {
-      const { data } = await api.post(`/users/${id}/reset-password`);
+      const { data } = await api.post(`/users/${id}/issue-password`);
       setTemporaryPassword(data.temporaryPassword);
-      toast.success('Временный пароль создан');
+      toast.success('Одноразовый пароль создан');
+      await fetchUser();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Не удалось сбросить пароль');
     } finally {
@@ -78,6 +124,10 @@ export default function UserDetailPage() {
 
   const subscriptions = user?.subscriptions || [];
   const activeSubscriptions = subscriptions.filter((s) => s.status === 'ACTIVE');
+
+  // A client shared with qr.bva.kz cannot be deleted from one side: the sync
+  // reconciler would recreate them within a minute.
+  const isSyncedUser = Boolean(user?.syncMemberId || subscriptions.some((subscription) => subscription.isShared));
   const tariffOptions = useMemo(() => tariffs.map((t) => ({ ...t, label: `${t.section?.name || 'Секция'} · ${t.name}` })), [tariffs]);
 
   const openAdjust = (subscription) => {
@@ -268,10 +318,41 @@ export default function UserDetailPage() {
           <p className="text-xs text-slate-400 mt-1">Активных абонементов: {activeSubscriptions.length}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setResetPasswordOpen(true)}>Сбросить пароль</Button>
+          <Button variant="secondary" onClick={openRename}>Изменить имя</Button>
+          <Button variant="secondary" onClick={() => setResetPasswordOpen(true)}>
+            {user.awaitingPassword ? 'Выдать пароль' : 'Сбросить пароль'}
+          </Button>
           <Button onClick={() => setSellOpen(true)}>Продать абонемент</Button>
         </div>
       </div>
+
+      <Modal isOpen={renameOpen} onClose={() => setRenameOpen(false)} title="Изменить имя клиента">
+        <form onSubmit={handleRename} className="space-y-4">
+          <Input
+            label="Имя"
+            value={renameForm.firstName}
+            onChange={(e) => setRenameForm((current) => ({ ...current, firstName: e.target.value }))}
+            maxLength={200}
+          />
+          <Input
+            label="Фамилия"
+            value={renameForm.lastName}
+            onChange={(e) => setRenameForm((current) => ({ ...current, lastName: e.target.value }))}
+            maxLength={200}
+          />
+          {user.syncMemberId && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Клиент общий с qr.bva.kz — имя изменится сразу на обоих сайтах.
+            </div>
+          )}
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => setRenameOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="submit" className="flex-1" loading={renaming}>Сохранить</Button>
+          </div>
+        </form>
+      </Modal>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {subscriptions.length === 0 ? (
@@ -375,7 +456,11 @@ export default function UserDetailPage() {
 
       <SellTariffModal isOpen={sellOpen} onClose={() => setSellOpen(false)} user={user} onSuccess={fetchUser} />
 
-      <Modal isOpen={resetPasswordOpen} onClose={closeResetPassword} title="Сбросить пароль">
+      <Modal
+        isOpen={resetPasswordOpen}
+        onClose={closeResetPassword}
+        title={user.awaitingPassword ? 'Выдать пароль клиенту' : 'Сбросить пароль'}
+      >
         {temporaryPassword ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
@@ -397,11 +482,15 @@ export default function UserDetailPage() {
         ) : (
           <div className="space-y-4">
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              Все текущие сессии клиента завершатся. При следующем входе он будет обязан создать новый пароль.
+              {user.awaitingPassword
+                ? 'Клиент получит одноразовый пароль и сможет войти в личный кабинет. При первом входе система попросит задать собственный пароль.'
+                : 'Все текущие сессии клиента завершатся. При следующем входе он будет обязан создать новый пароль.'}
             </div>
             <div className="flex gap-3">
               <Button variant="secondary" className="flex-1" onClick={closeResetPassword}>Отмена</Button>
-              <Button className="flex-1" loading={resetPasswordLoading} onClick={handleResetPassword}>Сбросить</Button>
+              <Button className="flex-1" loading={resetPasswordLoading} onClick={handleResetPassword}>
+                {user.awaitingPassword ? 'Выдать' : 'Сбросить'}
+              </Button>
             </div>
           </div>
         )}
@@ -509,6 +598,64 @@ export default function UserDetailPage() {
           )}
           <Button type="submit" loading={saving} className="w-full">Сохранить</Button>
         </form>
+      </Modal>
+
+      <section className="border border-red-200 bg-red-50 rounded-lg p-4 mt-6">
+        <h2 className="font-semibold text-red-800">Удаление клиента</h2>
+        <p className="text-sm text-red-700 mt-1">
+          Клиент, его абонементы, посещения и продажи будут удалены без возможности восстановления.
+        </p>
+        {isSyncedUser ? (
+          <p className="text-sm text-red-700 font-medium mt-3">
+            Этот клиент связан с qr.bva.kz. Локальное удаление заблокировано, чтобы не повредить общую синхронизацию.
+          </p>
+        ) : (
+          <Button variant="danger" size="sm" className="mt-4" onClick={() => setDeleteOpen(true)}>
+            Удалить клиента
+          </Button>
+        )}
+      </section>
+
+      <Modal
+        isOpen={deleteOpen}
+        onClose={() => { setDeleteOpen(false); setDeleteConfirmation(''); }}
+        title="Полное удаление клиента"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <p className="font-semibold">Это действие необратимо.</p>
+            <p className="mt-1">
+              Будут стерты профиль {user.firstName} {user.lastName}, вся история посещений,
+              абонементов и продаж. Итоги бухгалтерии изменятся.
+            </p>
+          </div>
+          <Input
+            label="Для подтверждения введите УДАЛИТЬ"
+            value={deleteConfirmation}
+            onChange={(e) => setDeleteConfirmation(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="flex gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              className="flex-1"
+              onClick={() => { setDeleteOpen(false); setDeleteConfirmation(''); }}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              className="flex-1"
+              disabled={deleteConfirmation !== 'УДАЛИТЬ'}
+              loading={saving}
+              onClick={handleDeleteUser}
+            >
+              Удалить навсегда
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

@@ -22,6 +22,7 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   phone: phoneSchema,
   password: z.string().min(1, 'Пароль обязателен'),
+  trustedDeviceToken: z.string().max(200).optional(),
 });
 
 export const verifyCodeSchema = z.object({
@@ -137,6 +138,7 @@ export const logsQuerySchema = paginationSchema.extend({
   to: z.string().datetime({ offset: true }).optional(),
   userId: z.coerce.number().int().positive().optional(),
   sectionId: z.coerce.number().int().positive().optional(),
+  search: z.string().optional(),
 });
 
 export const usersQuerySchema = paginationSchema.extend({
@@ -148,12 +150,24 @@ export const verificationRequestsQuerySchema = paginationSchema.extend({
   search: z.string().trim().max(200).optional(),
 });
 
+// No password field: the API mints a one-time password the client must replace.
+// No role field either -- this endpoint creates clients only. It used to accept
+// role, which let any administrator mint another administrator over the API.
 export const createUserSchema = z.object({
   firstName: nameSchema,
   lastName: nameSchema,
   phone: phoneSchema,
-  password: z.string().min(6).max(200),
-  role: z.enum(['ADMIN', 'VISITOR']).optional(),
+});
+
+export const updateClientNameSchema = z.object({
+  firstName: nameSchema,
+  lastName: nameSchema,
+});
+
+export const deleteUserSchema = z.object({
+  confirmDeletion: z.literal(true, {
+    errorMap: () => ({ message: 'Подтвердите полное удаление клиента' }),
+  }),
 });
 
 export const adminCheckInSchema = z.object({

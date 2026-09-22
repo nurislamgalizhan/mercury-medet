@@ -5,13 +5,15 @@ import {
   getUserById,
   createUser,
   adjustUser,
-  deactivateUser,
+  renameClient,
+  deleteUser,
   cancelSubscription,
   activateSubscription,
   getAdminActionLogs,
   freezeSubscription,
   unfreezeSubscription,
   resetClientPassword,
+  issueClientPassword,
 } from '../controllers/userController.js';
 
 const router = Router();
@@ -26,10 +28,12 @@ router.get('/', getUsers);
 router.get('/admin-history', getAdminActionLogs);
 router.post('/', createUser);
 router.post('/:id/reset-password', resetClientPassword);
+router.post('/:id/issue-password', issueClientPassword);
 router.get('/:id', getUserById);
 router.patch('/:id/adjust', adjustUser);
+router.patch('/:id/name', renameClient);
 router.post('/:id/subscriptions/:subscriptionId/cancel', cancelSubscription);
 router.post('/:id/subscriptions/:subscriptionId/activate', activateSubscription);
-router.delete('/:id', deactivateUser);
+router.delete('/:id', deleteUser);
 
 export default router;

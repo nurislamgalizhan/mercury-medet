@@ -25,8 +25,8 @@ export function useUsers() {
     return data;
   }, []);
 
-  const deactivateUser = useCallback(async (id) => {
-    await api.delete(`/users/${id}`);
+  const deleteUser = useCallback(async (id) => {
+    await api.delete(`/users/${id}`, { data: { confirmDeletion: true } });
   }, []);
 
   const createUser = useCallback(async (payload) => {
@@ -34,5 +34,5 @@ export function useUsers() {
     return data;
   }, []);
 
-  return { users, meta, loading, fetchUsers, adjustUser, deactivateUser, createUser };
+  return { users, meta, loading, fetchUsers, adjustUser, deleteUser, createUser };
 }

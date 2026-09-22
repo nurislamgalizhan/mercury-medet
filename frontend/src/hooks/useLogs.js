@@ -7,7 +7,7 @@ export function useVisitLogs() {
   const [meta, setMeta] = useState({ total: 0, page: 1, pages: 1 });
   const [loading, setLoading] = useState(false);
 
-  const fetchLogs = useCallback(async ({ page = 1, limit = 20, from, to, userId, sectionId } = {}) => {
+  const fetchLogs = useCallback(async ({ page = 1, limit = 20, from, to, userId, sectionId, search } = {}) => {
     setLoading(true);
     try {
       const { data } = await api.get('/visits', {
@@ -18,6 +18,7 @@ export function useVisitLogs() {
           ...(to && { to: to.toISOString() }),
           ...(userId && { userId }),
           ...(sectionId && { sectionId }),
+          ...(search && { search }),
         },
       });
       setLogs(data.data);

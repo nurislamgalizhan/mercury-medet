@@ -99,6 +99,10 @@ export function checkInSharedSubscription(payload) {
   return request('post', '/v1/checkins', { ...payload, sourceSite: site });
 }
 
+export function renameSharedMember(memberId, payload) {
+  return request('patch', `/v1/members/${memberId}/name`, { ...payload, sourceSite: site });
+}
+
 export function getSyncStatus() {
   return request('get', '/v1/status');
 }
